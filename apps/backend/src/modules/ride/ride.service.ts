@@ -1,5 +1,5 @@
 import { Ride, IRide, RideStatus, ICoordinate } from './ride.schema'
-import { FilterQuery, Types } from 'mongoose'
+import { FilterQuery } from 'mongoose'
 import { getNearbyDrivers } from '../../infrastructure/redis/redis.client'
 import { AppConfig } from 'shared-config'
 
@@ -44,8 +44,8 @@ export class RideService {
     status?: RideStatus
   } = {}): Promise<IRide[]> {
     const query: FilterQuery<IRide> = {}
-    if (filters.riderId) query.riderId = new Types.ObjectId(filters.riderId)
-    if (filters.driverId) query.driverId = new Types.ObjectId(filters.driverId)
+    if (filters.riderId) query.riderId = filters.riderId
+    if (filters.driverId) query.driverId = filters.driverId
     if (filters.status) query.status = filters.status
     return Ride.find(query).sort({ createdAt: -1 })
   }

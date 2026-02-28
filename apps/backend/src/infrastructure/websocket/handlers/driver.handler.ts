@@ -8,11 +8,15 @@ const rideService = new RideService()
 
 export function registerDriverHandlers(socket: Socket): void {
   socket.on(SocketEvents.DRIVER_ONLINE, async ({ driverId, lat, lng }: { driverId: string; lat: number; lng: number }) => {
-    socket.data.driverId = driverId
-    socket.join(`driver:${driverId}`)
-    DriverSocketManager.add(driverId, socket)
-    await addDriverLocation(driverId, lat, lng)
-    console.log(`[WS] Driver ${driverId} online`)
+    try {
+      socket.data.driverId = driverId
+      socket.join(`driver:${driverId}`)
+      DriverSocketManager.add(driverId, socket)
+      await addDriverLocation(driverId, lat, lng)
+      console.log(`[WS] Driver ${driverId} online at (${lat}, ${lng})`)
+    } catch (err: any) {
+      console.error(`[WS] DRIVER_ONLINE error for ${driverId}:`, err.message)
+    }
   })
 
   socket.on(SocketEvents.DRIVER_OFFLINE, async ({ driverId }: { driverId: string }) => {

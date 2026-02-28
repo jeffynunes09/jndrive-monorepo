@@ -28,7 +28,7 @@ export function registerRideHandlers(socket: Socket): void {
         })
       }
 
-      console.log(`[WS] Ride ${ride.id} sent to ${driverIds.length} drivers`)
+      console.log(`[WS] Ride ${ride.id} — drivers found: [${driverIds.join(', ')}]`)
       ack({ data: ride })
     } catch (err: any) {
       ack({ error: err.message })

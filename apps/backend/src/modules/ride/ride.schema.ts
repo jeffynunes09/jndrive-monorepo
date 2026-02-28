@@ -1,4 +1,4 @@
-import { Schema, model, Document, Types } from 'mongoose'
+import { Schema, model, Document } from 'mongoose'
 
 export type RideStatus =
   | 'pending'
@@ -16,8 +16,8 @@ export interface ICoordinate {
 }
 
 export interface IRide extends Document {
-  riderId: Types.ObjectId
-  driverId?: Types.ObjectId
+  riderId: string
+  driverId?: string
   origin: ICoordinate
   destination: ICoordinate
   status: RideStatus
@@ -41,8 +41,8 @@ const CoordinateSchema = new Schema<ICoordinate>({
 
 const RideSchema = new Schema<IRide>(
   {
-    riderId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-    driverId: { type: Schema.Types.ObjectId, ref: 'User' },
+    riderId: { type: String, required: true },
+    driverId: { type: String },
     origin: { type: CoordinateSchema, required: true },
     destination: { type: CoordinateSchema, required: true },
     status: {
