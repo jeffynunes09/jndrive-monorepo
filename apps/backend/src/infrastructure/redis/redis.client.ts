@@ -4,7 +4,11 @@ let redisClient: RedisClientType
 
 export async function getRedisClient(): Promise<RedisClientType> {
   if (!redisClient) {
-    redisClient = createClient({ url: process.env.REDIS_URL }) as RedisClientType
+    redisClient = createClient({ url: process.env.REDIS_URL,socket:{
+    tls: true,
+    rejectUnauthorized: false
+  
+    } }) as RedisClientType
     await redisClient.connect()
     console.log('Redis connected')
   }
