@@ -17,6 +17,10 @@ interface IncomingRide {
   rideId: string
   origin: { lat: number; lng: number; address: string }
   destination: { lat: number; lng: number; address: string }
+  geometry?: [number, number][]
+  distance?: number
+  duration?: number
+  fare?: number
 }
 
 interface ActiveRide {
@@ -37,6 +41,7 @@ export default function HomeScreen() {
   const [incomingRide, setIncomingRide] = useState<IncomingRide | null>(null)
   const [activeRide, setActiveRide] = useState<ActiveRide | null>(null)
   const [ridePhase, setRidePhase] = useState<RidePhase>(null)
+  const [routeCoords, setRouteCoords] = useState<LatLng[] | null>(null)
   const [locationReady, setLocationReady] = useState(false)
 
   const isOnlineRef = useRef(isOnline)
@@ -93,12 +98,17 @@ export default function HomeScreen() {
 
     socket.on('RIDE_REQUEST', (ride: IncomingRide) => {
       setIncomingRide(ride)
+      if (ride.geometry && ride.geometry.length > 0) {
+        const coords: LatLng[] = ride.geometry.map(([lng, lat]) => ({ latitude: lat, longitude: lng }))
+        setRouteCoords(coords)
+      }
     })
 
     socket.on('RIDE_STATUS_UPDATE', ({ status }: { status: RidePhase }) => {
       setRidePhase(status)
       if (status === 'completed' || status === 'cancelled') {
         setActiveRide(null)
+        setRouteCoords(null)
       }
     })
 
@@ -188,12 +198,12 @@ export default function HomeScreen() {
     setRidePhase('payment_pending')
   }
 
-  const polylineCoords: LatLng[] = activeRide && driverLocation
-    ? [
-      { latitude: driverLocation.lat, longitude: driverLocation.lng },
-      { latitude: activeRide.origin.lat, longitude: activeRide.origin.lng },
-      { latitude: activeRide.destination.lat, longitude: activeRide.destination.lng },
-    ]
+  // Usa rota real do ORS se disponível, senão linha reta como fallback
+  const polylineCoords: LatLng[] = activeRide
+    ? (routeCoords ?? [
+        { latitude: activeRide.origin.lat, longitude: activeRide.origin.lng },
+        { latitude: activeRide.destination.lat, longitude: activeRide.destination.lng },
+      ])
     : []
 
   const initialRegion = driverLocation
@@ -337,6 +347,32 @@ export default function HomeScreen() {
               <Text style={styles.modalLabel}>Destino</Text>
               <Text style={styles.modalValue}>{incomingRide?.destination.address}</Text>
             </View>
+
+            {/* Detalhes da rota */}
+            {(incomingRide?.distance || incomingRide?.duration || incomingRide?.fare) && (
+              <View style={styles.routeChips}>
+                {incomingRide.distance != null && (
+                  <View style={styles.routeChip}>
+                    <Text style={styles.routeChipLabel}>Distância</Text>
+                    <Text style={styles.routeChipValue}>{incomingRide.distance.toFixed(1)} km</Text>
+                  </View>
+                )}
+                {incomingRide.duration != null && (
+                  <View style={styles.routeChip}>
+                    <Text style={styles.routeChipLabel}>Tempo</Text>
+                    <Text style={styles.routeChipValue}>{incomingRide.duration} min</Text>
+                  </View>
+                )}
+                {incomingRide.fare != null && (
+                  <View style={[styles.routeChip, styles.fareChip]}>
+                    <Text style={styles.routeChipLabel}>Tarifa</Text>
+                    <Text style={styles.fareChipValue}>
+                      R$ {incomingRide.fare.toFixed(2).replace('.', ',')}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            )}
 
             <View style={styles.modalButtons}>
               <TouchableOpacity style={styles.rejectButton} onPress={handleReject}>
@@ -505,6 +541,39 @@ const styles = StyleSheet.create({
     color: '#e5e5e5',
     fontSize: 15,
     fontWeight: '500',
+  },
+  routeChips: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  routeChip: {
+    flex: 1,
+    backgroundColor: '#1a1a1a',
+    borderRadius: 10,
+    padding: 10,
+    alignItems: 'center',
+    gap: 2,
+  },
+  fareChip: {
+    backgroundColor: '#0d2a1a',
+    borderWidth: 1,
+    borderColor: '#166534',
+  },
+  routeChipLabel: {
+    color: '#555',
+    fontSize: 10,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+  },
+  routeChipValue: {
+    color: '#e5e5e5',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  fareChipValue: {
+    color: '#22c55e',
+    fontSize: 14,
+    fontWeight: '800',
   },
   modalButtons: {
     flexDirection: 'row',

@@ -2,24 +2,20 @@ import { Socket } from 'socket.io'
 import { RideService } from '../../../modules/ride/ride.service'
 import { SocketEvents } from 'shared-events'
 import { getIO } from '../socket'
-import { IRide } from '../../../modules/ride/ride.schema'
-import { data } from 'react-router-dom'
 
 const rideService = new RideService()
-
-
 
 export function registerRideHandlers(socket: Socket): void {
   socket.on(SocketEvents.RIDE_CREATE, async (payload) => {
     try {
       const { ride, driverIds } = await rideService.requestRide(payload)
 
-      // rider joins their notification room
+      // Rider entra na sua sala de notificações
       if (payload.riderId) {
         socket.join(`user:${payload.riderId}`)
       }
 
-      // notify nearby drivers directly (no worker needed for MVP)
+      // Notifica motoristas próximos com dados da rota
       const io = getIO()
       for (const driverId of driverIds) {
         io.to(`driver:${driverId}`).emit(SocketEvents.RIDE_REQUEST, {
@@ -27,18 +23,27 @@ export function registerRideHandlers(socket: Socket): void {
           riderId: ride.riderId,
           origin: ride.origin,
           destination: ride.destination,
+          geometry: ride.geometry ?? null,
+          distance: ride.distance,
+          duration: ride.duration,
+          fare: ride.fare,
         })
       }
 
+      // Confirma criação para o rider com rideId + dados de rota
+      socket.emit(SocketEvents.RIDE_CREATED, {
+        rideId: ride.id,
+        distance: ride.distance ?? null,
+        duration: ride.duration ?? null,
+        fare: ride.fare ?? null,
+        geometry: ride.geometry ?? null,
+      })
+
       console.log(`[WS] Ride ${ride.id} — drivers found: [${driverIds.join(', ')}]`)
-      return {
-        data: ride,
-      } 
-        
+      return { data: ride }
+
     } catch (err: any) {
-      return{
-         error: err.message || 'Failed to create ride'
-      }
+      return { error: err.message || 'Failed to create ride' }
     }
   })
 
@@ -80,7 +85,8 @@ export function registerRideHandlers(socket: Socket): void {
       return { error: err.message }
     }
   })
-  socket.on(SocketEvents.USER_ONLINE,async ({ userId, role }: { userId: string; role: 'rider' | 'driver' }) => {
+
+  socket.on(SocketEvents.USER_ONLINE, async ({ userId, role }: { userId: string; role: 'rider' | 'driver' }) => {
     socket.data.userId = userId
     socket.join(`${role}:${userId}`)
     console.log(`[WS] ${role} ${userId} joined room`)

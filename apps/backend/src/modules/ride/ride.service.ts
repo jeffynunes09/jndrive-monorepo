@@ -1,6 +1,7 @@
 import { Ride, IRide, RideStatus, ICoordinate } from './ride.schema'
 import { FilterQuery } from 'mongoose'
 import { getNearbyDrivers } from '../../infrastructure/redis/redis.client'
+import { getRoute } from '../../infrastructure/routes/ors.client'
 import { AppConfig } from 'shared-config'
 
 export interface CreateRideDto {
@@ -30,12 +31,30 @@ export class RideService {
   }
 
   async requestRide(data: CreateRideDto): Promise<{ ride: IRide; driverIds: string[] }> {
-    const ride = await Ride.create({ ...data, status: 'searching_driver' })
+ //TODO: BLOQUEAR CRIAÇÃO EM CASO DE FALHA DE ROTA (EX: ORIGIN/DESTINO INACESSÍVEIS)
+    const route = await getRoute(data.origin, data.destination)
+
+    const fare = route
+      ? Math.round((AppConfig.BASE_FARE + route.distance * AppConfig.FARE_PER_KM + route.duration * AppConfig.FARE_PER_MIN) * 100) / 100
+      : undefined
+
+    // 2. Criar corrida com dados de rota
+    const ride = await Ride.create({
+      ...data,
+      status: 'searching_driver',
+      distance: route?.distance,
+      duration: route?.duration,
+      fare,
+      geometry: route?.geometry,
+    })
+
+    // 3. Buscar motoristas próximos
     const driverIds = await getNearbyDrivers(
       data.origin.lat,
       data.origin.lng,
       AppConfig.NEARBY_DRIVERS_RADIUS_KM
     )
+
     return { ride, driverIds }
   }
 

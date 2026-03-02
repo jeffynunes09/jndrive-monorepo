@@ -26,6 +26,7 @@ export interface IRide extends Document {
   fare?: number
   distance?: number
   duration?: number
+  geometry?: [number, number][]   // [lng, lat] pairs from ORS
   paymentConfirmed?: boolean
   scheduledAt?: Date
   startedAt?: Date
@@ -56,6 +57,7 @@ const RideSchema = new Schema<IRide>(
     fare: { type: Number },
     distance: { type: Number },
     duration: { type: Number },
+    geometry: { type: Schema.Types.Mixed },
     paymentConfirmed: { type: Boolean, default: false },
     scheduledAt: { type: Date },
     startedAt: { type: Date },

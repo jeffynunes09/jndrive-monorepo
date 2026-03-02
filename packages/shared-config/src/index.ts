@@ -2,7 +2,9 @@
 
 export const AppConfig = {
   NEARBY_DRIVERS_RADIUS_KM: 5,
-  BASE_FARE: 15,
+  BASE_FARE: 5.0,       // R$ fixo de bandeirada
+  FARE_PER_KM: 2.5,     // R$ por km rodado
+  FARE_PER_MIN: 0.3,    // R$ por minuto de duração
   DEBOUNCE_TIME_MS: 500,
   PRE_BOOK_RIDE_WINDOW_MIN: 20,
   DRIVER_HEARTBEAT_TIMEOUT_S: 45,

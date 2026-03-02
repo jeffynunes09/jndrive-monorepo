@@ -35,6 +35,13 @@ const STATUS_COLORS: Record<RideStatus, string> = {
   cancelled: '#ef4444',
 }
 
+interface RideInfo {
+  rideId: string
+  distance: number | null
+  duration: number | null
+  fare: number | null
+}
+
 export default function HomeScreen() {
   const { userId } = useLocalSearchParams<{ userId: string }>()
   const mapRef = useRef<MapView>(null)
@@ -47,20 +54,18 @@ export default function HomeScreen() {
   const [driverInfo, setDriverInfo] = useState<string | null>(null)
   const [driverLocation, setDriverLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [loading, setLoading] = useState(false)
-  const [currentRideId, setCurrentRideId] = useState<string | null>(null)
   const [destCoord, setDestCoord] = useState<{ lat: number; lng: number } | null>(null)
+  const [rideInfo, setRideInfo] = useState<RideInfo | null>(null)
+  const [routeCoords, setRouteCoords] = useState<LatLng[] | null>(null)
 
   const driverFitDone = useRef(false)
 
-  // Get rider GPS location once
+  // GPS location
   useEffect(() => {
-    ; (async () => {
+    ;(async () => {
       const { status } = await Location.requestForegroundPermissionsAsync()
       if (status !== 'granted') return
-
-      const { coords } = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.High,
-      })
+      const { coords } = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High })
       setRiderLocation({ lat: coords.latitude, lng: coords.longitude })
       setLocationReady(true)
     })()
@@ -69,14 +74,41 @@ export default function HomeScreen() {
   // Socket events
   useEffect(() => {
     const socket = getSocket()
-
     socket.connect()
     if (socket.connected) setConnected(true)
 
     socket.on('connect', () => setConnected(true))
     socket.on('disconnect', () => setConnected(false))
 
-    socket.on('RIDE_STATUS_UPDATE', ({ rideId, status, driverId }: { rideId: string; status: RideStatus; driverId?: string }) => {
+    // Confirmação de criação da corrida com rota calculada
+    socket.on('RIDE_CREATED', ({
+      rideId,
+      distance,
+      duration,
+      fare,
+      geometry,
+    }: {
+      rideId: string
+      distance: number | null
+      duration: number | null
+      fare: number | null
+      geometry: [number, number][] | null
+    }) => {
+      setRideInfo({ rideId, distance, duration, fare })
+      setRideStatus('searching_driver')
+      setLoading(false)
+
+      if (geometry && geometry.length > 0) {
+        const coords: LatLng[] = geometry.map(([lng, lat]) => ({ latitude: lat, longitude: lng }))
+        setRouteCoords(coords)
+        mapRef.current?.fitToCoordinates(coords, {
+          edgePadding: { top: 80, right: 60, bottom: 280, left: 60 },
+          animated: true,
+        })
+      }
+    })
+
+    socket.on('RIDE_STATUS_UPDATE', ({ status, driverId }: { rideId: string; status: RideStatus; driverId?: string }) => {
       setRideStatus(status)
       if (driverId) setDriverInfo(driverId)
       if (status === 'completed' || status === 'cancelled' || status === 'paid') {
@@ -85,25 +117,21 @@ export default function HomeScreen() {
     })
 
     socket.on('DRIVER_LOCATION_BROADCAST', ({ lat, lng }: { lat: number; lng: number }) => {
-      const loc = { lat, lng }
-      setDriverLocation(loc)
+      setDriverLocation({ lat, lng })
 
       if (!driverFitDone.current && riderLocation) {
         driverFitDone.current = true
-        const coords: LatLng[] = [
+        mapRef.current?.fitToCoordinates([
           { latitude: riderLocation.lat, longitude: riderLocation.lng },
           { latitude: lat, longitude: lng },
-        ]
-        mapRef.current?.fitToCoordinates(coords, {
-          edgePadding: { top: 80, right: 60, bottom: 280, left: 60 },
-          animated: true,
-        })
+        ], { edgePadding: { top: 80, right: 60, bottom: 280, left: 60 }, animated: true })
       }
     })
 
     return () => {
       socket.off('connect')
       socket.off('disconnect')
+      socket.off('RIDE_CREATED')
       socket.off('RIDE_STATUS_UPDATE')
       socket.off('DRIVER_LOCATION_BROADCAST')
     }
@@ -117,49 +145,28 @@ export default function HomeScreen() {
       lng: riderLocation.lng - 0.02,
     }
     setDestCoord(dest)
+    setRouteCoords(null)
     driverFitDone.current = false
     setLoading(true)
     setDriverLocation(null)
     setDriverInfo(null)
+    setRideInfo(null)
 
     const socket = getSocket()
-    socket.emit(
-      'ride:create',
-      {
-        riderId: userId,
-        origin: {
-          lat: riderLocation.lat,
-          lng: riderLocation.lng,
-          address: 'Localização atual',
-        },
-        destination: {
-          lat: dest.lat,
-          lng: dest.lng,
-          address: destination.trim(),
-        },
+    socket.emit('ride:create', {
+      riderId: userId,
+      origin: {
+        lat: riderLocation.lat,
+        lng: riderLocation.lng,
+        address: 'Localização atual',
       },
-      (response: { rideId?: string; data?: { _id?: string; id?: string }; error?: string }) => {
-        if (response?.error) {
-          setLoading(false)
-          return
-        }
-        const rideId = response?.rideId ?? response?.data?._id ?? response?.data?.id
-        if (rideId) {
-          setCurrentRideId(rideId)
-          setRideStatus('searching_driver')
-        }
-
-        // Fit map to origin + destination
-        const coords: LatLng[] = [
-          { latitude: riderLocation.lat, longitude: riderLocation.lng },
-          { latitude: dest.lat, longitude: dest.lng },
-        ]
-        mapRef.current?.fitToCoordinates(coords, {
-          edgePadding: { top: 80, right: 60, bottom: 280, left: 60 },
-          animated: true,
-        })
-      }
-    )
+      destination: {
+        lat: dest.lat,
+        lng: dest.lng,
+        address: destination.trim(),
+      },
+    })
+    // A resposta chega via evento RIDE_CREATED (emitido pelo servidor)
   }
 
   function resetRide() {
@@ -167,7 +174,8 @@ export default function HomeScreen() {
     setDriverInfo(null)
     setDriverLocation(null)
     setDestCoord(null)
-    setCurrentRideId(null)
+    setRideInfo(null)
+    setRouteCoords(null)
     setDestination('')
     setLoading(false)
     driverFitDone.current = false
@@ -176,30 +184,34 @@ export default function HomeScreen() {
   const isRideActive = rideStatus !== null && rideStatus !== 'completed' && rideStatus !== 'cancelled'
   const isRideEnded = rideStatus === 'completed' || rideStatus === 'cancelled' || rideStatus === 'paid'
 
+  // Usa rota real se disponível, senão linha reta como fallback
   const polylineCoords: LatLng[] =
-    riderLocation && destCoord && isRideActive
-      ? [
-        { latitude: riderLocation.lat, longitude: riderLocation.lng },
-        { latitude: destCoord.lat, longitude: destCoord.lng },
-      ]
-      : []
+    routeCoords && isRideActive
+      ? routeCoords
+      : riderLocation && destCoord && isRideActive
+        ? [
+            { latitude: riderLocation.lat, longitude: riderLocation.lng },
+            { latitude: destCoord.lat, longitude: destCoord.lng },
+          ]
+        : []
 
   const initialRegion = riderLocation
     ? {
-      latitude: riderLocation.lat,
-      longitude: riderLocation.lng,
-      latitudeDelta: 0.01,
-      longitudeDelta: 0.01,
-    }
+        latitude: riderLocation.lat,
+        longitude: riderLocation.lng,
+        latitudeDelta: 0.01,
+        longitudeDelta: 0.01,
+      }
     : {
-      latitude: -23.55,
-      longitude: -46.63,
-      latitudeDelta: 0.05,
-      longitudeDelta: 0.05,
-    }
+        latitude: -23.55,
+        longitude: -46.63,
+        latitudeDelta: 0.05,
+        longitudeDelta: 0.05,
+      }
+
   return (
     <View style={styles.container}>
-      {/* Map */}
+      {/* Mapa */}
       <MapView
         ref={mapRef}
         style={StyleSheet.absoluteFillObject}
@@ -233,7 +245,7 @@ export default function HomeScreen() {
           />
         )}
 
-        {polylineCoords.length > 0 && (
+        {polylineCoords.length > 1 && (
           <Polyline
             coordinates={polylineCoords}
             strokeColor="#2563eb"
@@ -242,7 +254,6 @@ export default function HomeScreen() {
         )}
       </MapView>
 
-      {/* Loading overlay for location */}
       {!locationReady && (
         <View style={styles.loadingOverlay}>
           <ActivityIndicator size="large" color="#2563eb" />
@@ -257,6 +268,7 @@ export default function HomeScreen() {
           <Text style={styles.statusText}>{connected ? 'Conectado' : 'Desconectado'}</Text>
         </View>
 
+        {/* Formulário de solicitação */}
         {!isRideActive && !isRideEnded && (
           <>
             <TextInput
@@ -273,6 +285,7 @@ export default function HomeScreen() {
                 (!locationReady || !destination.trim() || !connected || loading) && styles.requestButtonDisabled,
               ]}
               onPress={requestRide}
+              disabled={!locationReady || !destination.trim() || !connected || loading}
             >
               {loading ? (
                 <ActivityIndicator color="#fff" size="small" />
@@ -283,6 +296,7 @@ export default function HomeScreen() {
           </>
         )}
 
+        {/* Corrida ativa */}
         {isRideActive && (
           <View style={styles.rideActiveContainer}>
             <View
@@ -296,6 +310,32 @@ export default function HomeScreen() {
               </Text>
             </View>
 
+            {/* Detalhes da rota (distância, tempo, tarifa) */}
+            {rideInfo && (
+              <View style={styles.routeInfoRow}>
+                {rideInfo.distance != null && (
+                  <View style={styles.routeInfoChip}>
+                    <Text style={styles.routeInfoLabel}>Distância</Text>
+                    <Text style={styles.routeInfoValue}>{rideInfo.distance.toFixed(1)} km</Text>
+                  </View>
+                )}
+                {rideInfo.duration != null && (
+                  <View style={styles.routeInfoChip}>
+                    <Text style={styles.routeInfoLabel}>Tempo est.</Text>
+                    <Text style={styles.routeInfoValue}>{rideInfo.duration} min</Text>
+                  </View>
+                )}
+                {rideInfo.fare != null && (
+                  <View style={[styles.routeInfoChip, styles.fareChip]}>
+                    <Text style={styles.routeInfoLabel}>Tarifa</Text>
+                    <Text style={styles.fareValue}>
+                      R$ {rideInfo.fare.toFixed(2).replace('.', ',')}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            )}
+
             {driverInfo && (
               <View style={styles.driverCard}>
                 <Text style={styles.driverCardLabel}>Motorista</Text>
@@ -305,6 +345,7 @@ export default function HomeScreen() {
           </View>
         )}
 
+        {/* Corrida encerrada */}
         {isRideEnded && (
           <View style={styles.rideActiveContainer}>
             <View
@@ -317,6 +358,16 @@ export default function HomeScreen() {
                 {STATUS_LABELS[rideStatus!]}
               </Text>
             </View>
+
+            {rideInfo?.fare != null && (
+              <View style={styles.finalFareCard}>
+                <Text style={styles.finalFareLabel}>Total pago</Text>
+                <Text style={styles.finalFareValue}>
+                  R$ {rideInfo.fare.toFixed(2).replace('.', ',')}
+                </Text>
+              </View>
+            )}
+
             <TouchableOpacity style={styles.newRideButton} onPress={resetRide}>
               <Text style={styles.newRideButtonText}>Nova corrida</Text>
             </TouchableOpacity>
@@ -328,10 +379,7 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#0a0f1e',
-  },
+  container: { flex: 1, backgroundColor: '#0a0f1e' },
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: '#0a0f1e',
@@ -339,10 +387,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 16,
   },
-  loadingText: {
-    color: '#aaa',
-    fontSize: 15,
-  },
+  loadingText: { color: '#aaa', fontSize: 15 },
   bottomSheet: {
     position: 'absolute',
     bottom: 0,
@@ -355,20 +400,9 @@ const styles = StyleSheet.create({
     paddingBottom: 36,
     gap: 12,
   },
-  statusRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  statusText: {
-    color: '#6b7280',
-    fontSize: 13,
-  },
+  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  dot: { width: 8, height: 8, borderRadius: 4 },
+  statusText: { color: '#6b7280', fontSize: 13 },
   input: {
     backgroundColor: '#1f2937',
     borderWidth: 1,
@@ -385,17 +419,9 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     alignItems: 'center',
   },
-  requestButtonDisabled: {
-    backgroundColor: '#0d1f3c',
-  },
-  requestButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  rideActiveContainer: {
-    gap: 12,
-  },
+  requestButtonDisabled: { backgroundColor: '#0d1f3c' },
+  requestButtonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  rideActiveContainer: { gap: 10 },
   statusBadge: {
     borderRadius: 10,
     borderWidth: 1,
@@ -403,91 +429,88 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     alignItems: 'center',
   },
-  statusBadgeText: {
-    fontSize: 14,
-    fontWeight: '600',
+  statusBadgeText: { fontSize: 14, fontWeight: '600' },
+  // Chips de distância / tempo / tarifa
+  routeInfoRow: {
+    flexDirection: 'row',
+    gap: 8,
+    flexWrap: 'wrap',
   },
+  routeInfoChip: {
+    flex: 1,
+    backgroundColor: '#1f2937',
+    borderRadius: 10,
+    padding: 10,
+    alignItems: 'center',
+    gap: 2,
+    minWidth: 80,
+  },
+  fareChip: {
+    backgroundColor: '#0d1f3c',
+    borderWidth: 1,
+    borderColor: '#1e3a5f',
+  },
+  routeInfoLabel: { color: '#6b7280', fontSize: 10, fontWeight: '600', textTransform: 'uppercase' },
+  routeInfoValue: { color: '#e5e7eb', fontSize: 14, fontWeight: '700' },
+  fareValue: { color: '#60a5fa', fontSize: 15, fontWeight: '800' },
   driverCard: {
     backgroundColor: '#1f2937',
     borderRadius: 10,
     padding: 12,
   },
-  driverCardLabel: {
-    color: '#6b7280',
-    fontSize: 11,
-    marginBottom: 2,
+  driverCardLabel: { color: '#6b7280', fontSize: 11, marginBottom: 2 },
+  driverCardValue: { color: '#e5e7eb', fontSize: 14, fontWeight: '500' },
+  // Tela de fim de corrida
+  finalFareCard: {
+    backgroundColor: '#0d1f3c',
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#1e3a5f',
+    gap: 4,
   },
-  driverCardValue: {
-    color: '#e5e7eb',
-    fontSize: 14,
-    fontWeight: '500',
-  },
+  finalFareLabel: { color: '#6b7280', fontSize: 12 },
+  finalFareValue: { color: '#60a5fa', fontSize: 28, fontWeight: '800' },
   newRideButton: {
     backgroundColor: '#2563eb',
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',
   },
-  newRideButtonText: {
-    color: '#fff',
-    fontSize: 15,
-    fontWeight: '600',
-  },
+  newRideButtonText: { color: '#fff', fontSize: 15, fontWeight: '600' },
 })
 
-// Dark map style based on JnDrive design system tokens
-// --background #0d1221 | --card #141e32 | --muted #1b253b | --border #222d44
-// --primary #1adad0 | --muted-foreground #7b92a5 | --foreground #edf2f7
 const mapStyle = [
-  // Base geometry — background principal
   { elementType: 'geometry', stylers: [{ color: '#0d1221' }] },
-  // Labels gerais
   { elementType: 'labels.text.fill', stylers: [{ color: '#7b92a5' }] },
   { elementType: 'labels.text.stroke', stylers: [{ color: '#0d1221' }] },
-  // Ícones de labels
   { elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
-
-  // Landscape
   { featureType: 'landscape', elementType: 'geometry', stylers: [{ color: '#111929' }] },
   { featureType: 'landscape.man_made', elementType: 'geometry.stroke', stylers: [{ color: '#1b253b' }] },
   { featureType: 'landscape.natural', elementType: 'geometry', stylers: [{ color: '#0e1620' }] },
-
-  // Água — teal escuro, label teal
   { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#091e1d' }] },
   { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#1adad0' }] },
   { featureType: 'water', elementType: 'labels.text.stroke', stylers: [{ color: '#091e1d' }] },
-
-  // Parques / vegetação
   { featureType: 'poi.park', elementType: 'geometry.fill', stylers: [{ color: '#0d1f18' }] },
   { featureType: 'poi.park', elementType: 'labels.text.fill', stylers: [{ color: '#3a5a4a' }] },
-  // Outros POI — ocultos para mapa limpo
   { featureType: 'poi', elementType: 'geometry', stylers: [{ color: '#131c2e' }] },
   { featureType: 'poi', elementType: 'labels', stylers: [{ visibility: 'off' }] },
   { featureType: 'poi.business', stylers: [{ visibility: 'off' }] },
-
-  // Estradas — local
   { featureType: 'road.local', elementType: 'geometry.fill', stylers: [{ color: '#141e32' }] },
   { featureType: 'road.local', elementType: 'geometry.stroke', stylers: [{ color: '#1b253b' }] },
   { featureType: 'road.local', elementType: 'labels.text.fill', stylers: [{ color: '#546070' }] },
-
-  // Estradas — arterial
   { featureType: 'road.arterial', elementType: 'geometry.fill', stylers: [{ color: '#1b253b' }] },
   { featureType: 'road.arterial', elementType: 'geometry.stroke', stylers: [{ color: '#222d44' }] },
   { featureType: 'road.arterial', elementType: 'labels.text.fill', stylers: [{ color: '#7b92a5' }] },
-
-  // Estradas — rodovias
   { featureType: 'road.highway', elementType: 'geometry.fill', stylers: [{ color: '#222d44' }] },
   { featureType: 'road.highway', elementType: 'geometry.stroke', stylers: [{ color: '#2a3850' }] },
   { featureType: 'road.highway', elementType: 'labels.text.fill', stylers: [{ color: '#b8c8d8' }] },
   { featureType: 'road.highway', elementType: 'labels.text.stroke', stylers: [{ color: '#0d1221' }] },
   { featureType: 'road.highway', elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
-
-  // Transporte
   { featureType: 'transit', elementType: 'geometry', stylers: [{ color: '#131c2e' }] },
   { featureType: 'transit.station', elementType: 'labels.text.fill', stylers: [{ color: '#4a6070' }] },
   { featureType: 'transit.line', elementType: 'geometry', stylers: [{ color: '#1b253b' }] },
-
-  // Divisões administrativas
   { featureType: 'administrative', elementType: 'geometry', stylers: [{ color: '#1b253b' }] },
   { featureType: 'administrative', elementType: 'geometry.stroke', stylers: [{ color: '#222d44' }] },
   { featureType: 'administrative.country', elementType: 'labels.text.fill', stylers: [{ color: '#9db8c8' }] },
