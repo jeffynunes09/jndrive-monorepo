@@ -6,6 +6,8 @@ export type RideStatus =
   | 'driver_assigned'
   | 'driver_en_route'
   | 'in_progress'
+  | 'payment_pending'
+  | 'paid'
   | 'completed'
   | 'cancelled'
 
@@ -24,6 +26,7 @@ export interface IRide extends Document {
   fare?: number
   distance?: number
   duration?: number
+  paymentConfirmed?: boolean
   scheduledAt?: Date
   startedAt?: Date
   completedAt?: Date
@@ -47,12 +50,13 @@ const RideSchema = new Schema<IRide>(
     destination: { type: CoordinateSchema, required: true },
     status: {
       type: String,
-      enum: ['pending', 'searching_driver', 'driver_assigned', 'driver_en_route', 'in_progress', 'completed', 'cancelled'],
+      enum: ['pending', 'searching_driver', 'driver_assigned', 'driver_en_route', 'in_progress', 'payment_pending', 'paid', 'completed', 'cancelled'],
       default: 'pending',
     },
     fare: { type: Number },
     distance: { type: Number },
     duration: { type: Number },
+    paymentConfirmed: { type: Boolean, default: false },
     scheduledAt: { type: Date },
     startedAt: { type: Date },
     completedAt: { type: Date },

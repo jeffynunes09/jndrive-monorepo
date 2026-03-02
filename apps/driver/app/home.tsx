@@ -25,6 +25,8 @@ interface ActiveRide {
   destination: { lat: number; lng: number }
 }
 
+type RidePhase = 'driver_assigned' | 'in_progress' | 'payment_pending' | 'paid' | 'completed' | 'cancelled' | null
+
 export default function HomeScreen() {
   const { driverId } = useLocalSearchParams<{ driverId: string }>()
   const mapRef = useRef<MapView>(null)
@@ -34,7 +36,7 @@ export default function HomeScreen() {
   const [driverLocation, setDriverLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [incomingRide, setIncomingRide] = useState<IncomingRide | null>(null)
   const [activeRide, setActiveRide] = useState<ActiveRide | null>(null)
-  const [lastStatus, setLastStatus] = useState<string | null>(null)
+  const [ridePhase, setRidePhase] = useState<RidePhase>(null)
   const [locationReady, setLocationReady] = useState(false)
 
   const isOnlineRef = useRef(isOnline)
@@ -93,8 +95,8 @@ export default function HomeScreen() {
       setIncomingRide(ride)
     })
 
-    socket.on('RIDE_STATUS_UPDATE', ({ status }: { status: string }) => {
-      setLastStatus(status)
+    socket.on('RIDE_STATUS_UPDATE', ({ status }: { status: RidePhase }) => {
+      setRidePhase(status)
       if (status === 'completed' || status === 'cancelled') {
         setActiveRide(null)
       }
@@ -152,7 +154,7 @@ export default function HomeScreen() {
       destination: incomingRide.destination,
     })
     setIncomingRide(null)
-    setLastStatus('driver_assigned')
+    setRidePhase('driver_assigned')
   }
 
   function handleReject() {
@@ -164,6 +166,26 @@ export default function HomeScreen() {
       accepted: false,
     })
     setIncomingRide(null)
+  }
+
+  function handleStartRide() {
+    if (!activeRide) return
+    const socket = getSocket()
+    socket.emit('RIDE_START', {
+      rideId: activeRide.rideId,
+      driverId,
+    })
+    setRidePhase('in_progress')
+  }
+
+  function handlePayment() {
+    if (!activeRide) return
+    const socket = getSocket()
+    socket.emit('RIDE_PAYMENT_REQUEST', {
+      rideId: activeRide.rideId,
+      driverId,
+    })
+    setRidePhase('payment_pending')
   }
 
   const polylineCoords: LatLng[] = activeRide && driverLocation
@@ -253,13 +275,6 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {lastStatus && (
-          <View style={styles.statusCard}>
-            <Text style={styles.statusCardLabel}>Último status</Text>
-            <Text style={styles.statusCardValue}>{lastStatus}</Text>
-          </View>
-        )}
-
         {activeRide && (
           <View style={styles.activeRideCard}>
             <Text style={styles.activeRideTitle}>Corrida ativa</Text>
@@ -269,15 +284,39 @@ export default function HomeScreen() {
           </View>
         )}
 
-        <TouchableOpacity
-          style={[styles.onlineButton, isOnline ? styles.offlineButton : styles.goOnlineButton]}
-          onPress={toggleOnline}
-          disabled={!locationReady}
-        >
-          <Text style={styles.onlineButtonText}>
-            {isOnline ? 'Ficar Offline' : 'Ficar Online'}
-          </Text>
-        </TouchableOpacity>
+        {/* Ride flow action buttons */}
+        {activeRide && ridePhase === 'driver_assigned' && (
+          <TouchableOpacity style={styles.startButton} onPress={handleStartRide}>
+            <Text style={styles.actionButtonText}>Iniciar Corrida</Text>
+          </TouchableOpacity>
+        )}
+
+        {activeRide && ridePhase === 'in_progress' && (
+          <TouchableOpacity style={styles.paymentButton} onPress={handlePayment}>
+            <Text style={styles.actionButtonText}>Emitir Pagamento</Text>
+          </TouchableOpacity>
+        )}
+
+        {activeRide && (ridePhase === 'payment_pending' || ridePhase === 'paid') && (
+          <View style={styles.processingCard}>
+            <ActivityIndicator size="small" color="#8b5cf6" />
+            <Text style={styles.processingText}>
+              {ridePhase === 'payment_pending' ? 'Processando pagamento...' : 'Pagamento confirmado!'}
+            </Text>
+          </View>
+        )}
+
+        {!activeRide && (
+          <TouchableOpacity
+            style={[styles.onlineButton, isOnline ? styles.offlineButton : styles.goOnlineButton]}
+            onPress={toggleOnline}
+            disabled={!locationReady}
+          >
+            <Text style={styles.onlineButtonText}>
+              {isOnline ? 'Ficar Offline' : 'Ficar Online'}
+            </Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Incoming ride modal */}
@@ -368,21 +407,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
-  statusCard: {
-    backgroundColor: '#1a1a1a',
-    borderRadius: 10,
-    padding: 12,
-  },
-  statusCardLabel: {
-    color: '#666',
-    fontSize: 11,
-    marginBottom: 2,
-  },
-  statusCardValue: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '500',
-  },
   activeRideCard: {
     backgroundColor: '#0d2a1a',
     borderRadius: 10,
@@ -399,6 +423,38 @@ const styles = StyleSheet.create({
   activeRideText: {
     color: '#aaa',
     fontSize: 13,
+  },
+  startButton: {
+    backgroundColor: '#2563eb',
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  paymentButton: {
+    backgroundColor: '#7c3aed',
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  actionButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  processingCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#1a0d2e',
+    borderRadius: 10,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#4c1d95',
+  },
+  processingText: {
+    color: '#a78bfa',
+    fontSize: 14,
+    fontWeight: '500',
   },
   onlineButton: {
     borderRadius: 12,

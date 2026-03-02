@@ -13,12 +13,14 @@ import * as Location from 'expo-location'
 import { useLocalSearchParams } from 'expo-router'
 import { getSocket } from '../utils/socket'
 
-type RideStatus = 'searching_driver' | 'driver_assigned' | 'in_progress' | 'completed' | 'cancelled'
+type RideStatus = 'searching_driver' | 'driver_assigned' | 'in_progress' | 'payment_pending' | 'paid' | 'completed' | 'cancelled'
 
 const STATUS_LABELS: Record<RideStatus, string> = {
   searching_driver: 'Procurando motorista...',
   driver_assigned: 'Motorista a caminho',
   in_progress: 'Em viagem',
+  payment_pending: 'Processando pagamento...',
+  paid: 'Pagamento confirmado!',
   completed: 'Corrida finalizada',
   cancelled: 'Corrida cancelada',
 }
@@ -27,6 +29,8 @@ const STATUS_COLORS: Record<RideStatus, string> = {
   searching_driver: '#f59e0b',
   driver_assigned: '#3b82f6',
   in_progress: '#22c55e',
+  payment_pending: '#8b5cf6',
+  paid: '#10b981',
   completed: '#6b7280',
   cancelled: '#ef4444',
 }
@@ -75,7 +79,7 @@ export default function HomeScreen() {
     socket.on('RIDE_STATUS_UPDATE', ({ rideId, status, driverId }: { rideId: string; status: RideStatus; driverId?: string }) => {
       setRideStatus(status)
       if (driverId) setDriverInfo(driverId)
-      if (status === 'completed' || status === 'cancelled') {
+      if (status === 'completed' || status === 'cancelled' || status === 'paid') {
         setLoading(false)
       }
     })
@@ -134,13 +138,14 @@ export default function HomeScreen() {
           address: destination.trim(),
         },
       },
-      (response: { rideId?: string; error?: string }) => {
+      (response: { rideId?: string; data?: { _id?: string; id?: string }; error?: string }) => {
         if (response?.error) {
           setLoading(false)
           return
         }
-        if (response?.rideId) {
-          setCurrentRideId(response.rideId)
+        const rideId = response?.rideId ?? response?.data?._id ?? response?.data?.id
+        if (rideId) {
+          setCurrentRideId(rideId)
           setRideStatus('searching_driver')
         }
 
@@ -169,7 +174,7 @@ export default function HomeScreen() {
   }
 
   const isRideActive = rideStatus !== null && rideStatus !== 'completed' && rideStatus !== 'cancelled'
-  const isRideEnded = rideStatus === 'completed' || rideStatus === 'cancelled'
+  const isRideEnded = rideStatus === 'completed' || rideStatus === 'cancelled' || rideStatus === 'paid'
 
   const polylineCoords: LatLng[] =
     riderLocation && destCoord && isRideActive
@@ -192,11 +197,6 @@ export default function HomeScreen() {
         latitudeDelta: 0.05,
         longitudeDelta: 0.05,
       }
-useEffect(()=>{
-  console.log('Initializing socket connection')
-  const socket = getSocket()
-  console.log('Socket object:', socket)
-})
   return (
     <View style={styles.container}>
       {/* Map */}

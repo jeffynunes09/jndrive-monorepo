@@ -16,6 +16,7 @@ export interface UpdateRideDto {
   fare?: number
   distance?: number
   duration?: number
+  paymentConfirmed?: boolean
   scheduledAt?: Date
   startedAt?: Date
   completedAt?: Date
@@ -60,5 +61,38 @@ export class RideService {
 
   async delete(id: string): Promise<IRide | null> {
     return Ride.findByIdAndDelete(id)
+  }
+
+  // Atomic accept — only succeeds if status is still 'searching_driver'
+  async acceptRide(rideId: string, driverId: string): Promise<IRide | null> {
+    return Ride.findOneAndUpdate(
+      { _id: rideId, status: 'searching_driver' },
+      { driverId, status: 'driver_assigned' },
+      { new: true }
+    )
+  }
+
+  async startRide(rideId: string, driverId: string): Promise<IRide | null> {
+    return Ride.findOneAndUpdate(
+      { _id: rideId, driverId, status: 'driver_assigned' },
+      { status: 'in_progress', startedAt: new Date() },
+      { new: true }
+    )
+  }
+
+  async processPayment(rideId: string): Promise<IRide | null> {
+    return Ride.findOneAndUpdate(
+      { _id: rideId, status: 'payment_pending' },
+      { status: 'paid', paymentConfirmed: true },
+      { new: true }
+    )
+  }
+
+  async finishRide(rideId: string): Promise<IRide | null> {
+    return Ride.findOneAndUpdate(
+      { _id: rideId, status: 'paid' },
+      { status: 'completed', completedAt: new Date() },
+      { new: true }
+    )
   }
 }

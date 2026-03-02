@@ -37,6 +37,8 @@ export type RideStatus =
   | 'driver_assigned'
   | 'driver_en_route'
   | 'in_progress'
+  | 'payment_pending'
+  | 'paid'
   | 'completed'
   | 'cancelled'
 
