@@ -196,6 +196,7 @@ export default function HomeScreen() {
         style={StyleSheet.absoluteFillObject}
         provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
         initialRegion={initialRegion}
+        customMapStyle={mapStyle}
         showsUserLocation={false}
         showsMyLocationButton={false}
       >
@@ -481,3 +482,63 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 })
+// Dark map style based on TruDrive design system tokens
+// --background #0d1221 | --card #141e32 | --muted #1b253b | --border #222d44
+// --primary #1adad0 | --muted-foreground #7b92a5 | --foreground #edf2f7
+const mapStyle = [
+  // Base geometry — background principal
+  { elementType: 'geometry', stylers: [{ color: '#0d1221' }] },
+  // Labels gerais
+  { elementType: 'labels.text.fill', stylers: [{ color: '#7b92a5' }] },
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#0d1221' }] },
+  // Ícones de labels
+  { elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
+
+  // Landscape
+  { featureType: 'landscape', elementType: 'geometry', stylers: [{ color: '#111929' }] },
+  { featureType: 'landscape.man_made', elementType: 'geometry.stroke', stylers: [{ color: '#1b253b' }] },
+  { featureType: 'landscape.natural', elementType: 'geometry', stylers: [{ color: '#0e1620' }] },
+
+  // Água — teal escuro, label teal
+  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#091e1d' }] },
+  { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#1adad0' }] },
+  { featureType: 'water', elementType: 'labels.text.stroke', stylers: [{ color: '#091e1d' }] },
+
+  // Parques / vegetação
+  { featureType: 'poi.park', elementType: 'geometry.fill', stylers: [{ color: '#0d1f18' }] },
+  { featureType: 'poi.park', elementType: 'labels.text.fill', stylers: [{ color: '#3a5a4a' }] },
+  // Outros POI — ocultos para mapa limpo
+  { featureType: 'poi', elementType: 'geometry', stylers: [{ color: '#131c2e' }] },
+  { featureType: 'poi', elementType: 'labels', stylers: [{ visibility: 'off' }] },
+  { featureType: 'poi.business', stylers: [{ visibility: 'off' }] },
+
+  // Estradas — local
+  { featureType: 'road.local', elementType: 'geometry.fill', stylers: [{ color: '#141e32' }] },
+  { featureType: 'road.local', elementType: 'geometry.stroke', stylers: [{ color: '#1b253b' }] },
+  { featureType: 'road.local', elementType: 'labels.text.fill', stylers: [{ color: '#546070' }] },
+
+  // Estradas — arterial
+  { featureType: 'road.arterial', elementType: 'geometry.fill', stylers: [{ color: '#1b253b' }] },
+  { featureType: 'road.arterial', elementType: 'geometry.stroke', stylers: [{ color: '#222d44' }] },
+  { featureType: 'road.arterial', elementType: 'labels.text.fill', stylers: [{ color: '#7b92a5' }] },
+
+  // Estradas — rodovias
+  { featureType: 'road.highway', elementType: 'geometry.fill', stylers: [{ color: '#222d44' }] },
+  { featureType: 'road.highway', elementType: 'geometry.stroke', stylers: [{ color: '#2a3850' }] },
+  { featureType: 'road.highway', elementType: 'labels.text.fill', stylers: [{ color: '#b8c8d8' }] },
+  { featureType: 'road.highway', elementType: 'labels.text.stroke', stylers: [{ color: '#0d1221' }] },
+  // Remover ícone de rodovias
+  { featureType: 'road.highway', elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
+
+  // Transporte
+  { featureType: 'transit', elementType: 'geometry', stylers: [{ color: '#131c2e' }] },
+  { featureType: 'transit.station', elementType: 'labels.text.fill', stylers: [{ color: '#4a6070' }] },
+  { featureType: 'transit.line', elementType: 'geometry', stylers: [{ color: '#1b253b' }] },
+
+  // Divisões administrativas
+  { featureType: 'administrative', elementType: 'geometry', stylers: [{ color: '#1b253b' }] },
+  { featureType: 'administrative', elementType: 'geometry.stroke', stylers: [{ color: '#222d44' }] },
+  { featureType: 'administrative.country', elementType: 'labels.text.fill', stylers: [{ color: '#9db8c8' }] },
+  { featureType: 'administrative.locality', elementType: 'labels.text.fill', stylers: [{ color: '#c8dae8' }] },
+  { featureType: 'administrative.neighborhood', elementType: 'labels.text.fill', stylers: [{ color: '#7b92a5' }] },
+]
