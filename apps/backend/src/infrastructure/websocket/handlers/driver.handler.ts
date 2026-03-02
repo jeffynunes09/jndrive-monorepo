@@ -28,6 +28,10 @@ export function registerDriverHandlers(socket: Socket): void {
 
   socket.on(SocketEvents.DRIVER_LOCATION_UPDATE, async ({ driverId, lat, lng }: { driverId: string; lat: number; lng: number }) => {
     await addDriverLocation(driverId, lat, lng)
+    const riderId = socket.data.activeRideRiderId as string | undefined
+    if (riderId) {
+      getIO().to(`user:${riderId}`).emit(SocketEvents.DRIVER_LOCATION_BROADCAST, { lat, lng })
+    }
   })
 
   socket.on(SocketEvents.RIDE_REQUEST_RESPONSE, async ({ rideId, driverId, accepted }: { rideId: string; driverId: string; accepted: boolean }) => {
@@ -45,6 +49,8 @@ export function registerDriverHandlers(socket: Socket): void {
     })
 
     if (!updated) return
+
+    socket.data.activeRideRiderId = updated.riderId
 
     getIO()
       .to(`user:${updated.riderId}`)
