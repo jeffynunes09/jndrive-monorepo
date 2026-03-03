@@ -27,7 +27,7 @@ export async function generatePresignedUrl(
   })
 
   const url = await getSignedUrl(s3, command, { expiresIn })
-
+ console.log(url)
   return { url, key }
 }
 

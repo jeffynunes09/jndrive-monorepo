@@ -1,19 +1,22 @@
 import { Socket } from 'socket.io'
-import { RideService } from '../../../modules/ride/ride.service'
+import { CreateRideDto, RideService } from '../../../modules/ride/ride.service'
 import { SocketEvents } from 'shared-events'
 import { getIO, DriverSocketManager } from '../socket'
+
 
 const rideService = new RideService()
 
 export function registerRideHandlers(socket: Socket): void {
-  socket.on(SocketEvents.RIDE_CREATE, async (payload) => {
+  socket.on(SocketEvents.RIDE_CREATE, async (payload:CreateRideDto) => {
     console.log('[WS] ride:create recebido — payload:', JSON.stringify(payload))
     try {
-      const validadeRequestRide = await rideService.findByRiderId(payload.riderId)
-      console.log(`[WS] corridas existentes para rider ${payload.riderId}:`, validadeRequestRide.length, validadeRequestRide.map(r => ({ id: r._id, status: r.status })))
-      if (validadeRequestRide.length > 0) {
-        console.warn('[WS] ride:create bloqueado — rider já tem corrida registrada (bug: não filtra por status ativo)')
-        socket.emit('RIDE_ERROR', { error: 'Rider already has an active ride' })
+      const activeRides = await rideService.findAll({ riderId: payload.riderId, status: 'searching_driver' })
+      const driverAssignedRides = await rideService.findAll({ riderId: payload.riderId, status: 'driver_assigned' })
+      const inProgressRides = await rideService.findAll({ riderId: payload.riderId, status: 'in_progress' })
+      const hasActive = activeRides.length > 0 || driverAssignedRides.length > 0 || inProgressRides.length > 0
+      if (hasActive) {
+        console.warn('[WS] ride:create bloqueado — rider já tem corrida ativa')
+        socket.emit('RIDE_ERROR', { error: 'Você já possui uma corrida em andamento' })
         return
       }
 
@@ -108,6 +111,56 @@ export function registerRideHandlers(socket: Socket): void {
       return { data: { deleted: true } }
     } catch (err: any) {
       return { error: err.message }
+    }
+  })
+
+  socket.on(SocketEvents.CANCEL_RIDE, async ({ rideId, cancelledBy }: { rideId: string; cancelledBy: 'rider' | 'driver' }) => {
+    console.log(`[WS] CANCEL_RIDE — rideId: ${rideId}, por: ${cancelledBy}`)
+    try {
+      const ride = await rideService.findById(rideId)
+      if (!ride) {
+        console.warn(`[WS] CANCEL_RIDE — corrida ${rideId} não encontrada`)
+        return
+      }
+
+      const cancellableStatuses = ['searching_driver', 'driver_assigned']
+      if (!cancellableStatuses.includes(ride.status)) {
+        console.warn(`[WS] CANCEL_RIDE — status '${ride.status}' não pode ser cancelado`)
+        return
+      }
+
+      await rideService.update(rideId, {
+        status: 'cancelled',
+        cancelledBy,
+        cancelledAt: new Date(),
+      })
+
+      const io = getIO()
+
+      // Notifica o rider
+      io.to(`user:${ride.riderId}`).emit(SocketEvents.RIDE_STATUS_UPDATE, {
+        rideId,
+        status: 'cancelled',
+      })
+
+      // Se já tinha motorista, notifica ele também
+      if (ride.driverId) {
+        io.to(`driver:${ride.driverId}`).emit(SocketEvents.RIDE_STATUS_UPDATE, {
+          rideId,
+          status: 'cancelled',
+        })
+
+        // Limpa corrida ativa do driver
+        const driverSocket = DriverSocketManager.get(ride.driverId)
+        if (driverSocket) {
+          driverSocket.data.activeRideId = undefined
+          driverSocket.data.activeRideRiderId = undefined
+        }
+      }
+
+      console.log(`[WS] Corrida ${rideId} cancelada por ${cancelledBy}`)
+    } catch (err: any) {
+      console.error('[WS] CANCEL_RIDE erro:', err.message)
     }
   })
 

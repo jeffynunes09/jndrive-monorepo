@@ -29,6 +29,7 @@ const C = {
 export default function RegisterScreen() {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
+  const [phone, setPhone] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [loading, setLoading] = useState(false)
@@ -59,6 +60,7 @@ export default function RegisterScreen() {
         name: name.trim(),
         email: email.trim(),
         password,
+        phone: phone.trim() || undefined,
       })
       await saveAuth(result.token, result.user)
       router.replace({ pathname: '/home', params: { userId: result.user.id } })
@@ -130,6 +132,19 @@ export default function RegisterScreen() {
           </View>
 
           <View style={styles.field}>
+            <Text style={styles.label}>Telefone (opcional)</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="+55 11 99999-9999"
+              placeholderTextColor={C.fgMuted}
+              value={phone}
+              onChangeText={setPhone}
+              keyboardType="phone-pad"
+              editable={!loading}
+            />
+          </View>
+
+          <View style={styles.field}>
             <Text style={styles.label}>Senha *</Text>
             <TextInput
               style={styles.input}
@@ -190,21 +205,14 @@ export default function RegisterScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: C.bg,
-  },
+  container: { flex: 1, backgroundColor: C.bg },
   scroll: {
     flexGrow: 1,
     justifyContent: 'center',
     paddingHorizontal: 24,
     paddingVertical: 48,
   },
-  logoSection: {
-    alignItems: 'center',
-    marginBottom: 40,
-    gap: 10,
-  },
+  logoSection: { alignItems: 'center', marginBottom: 40, gap: 10 },
   logoBox: {
     width: 56,
     height: 56,
@@ -218,17 +226,8 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 12,
   },
-  logoIcon: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: C.primaryFg,
-  },
-  appName: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: C.fg,
-    letterSpacing: -0.5,
-  },
+  logoIcon: { fontSize: 28, fontWeight: '800', color: C.primaryFg },
+  appName: { fontSize: 24, fontWeight: '700', color: C.fg, letterSpacing: -0.5 },
   roleBadge: {
     backgroundColor: C.input,
     borderRadius: 20,
@@ -237,12 +236,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: C.border,
   },
-  roleBadgeText: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: C.fgMuted,
-    letterSpacing: 1.5,
-  },
+  roleBadgeText: { fontSize: 10, fontWeight: '600', color: C.fgMuted, letterSpacing: 1.5 },
   card: {
     backgroundColor: C.card,
     borderRadius: 16,
@@ -251,19 +245,9 @@ const styles = StyleSheet.create({
     borderColor: C.border,
     gap: 16,
   },
-  title: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: C.fg,
-  },
-  field: {
-    gap: 6,
-  },
-  label: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: C.fgMuted,
-  },
+  title: { fontSize: 20, fontWeight: '700', color: C.fg },
+  field: { gap: 6 },
+  label: { fontSize: 12, fontWeight: '600', color: C.fgMuted },
   input: {
     backgroundColor: C.input,
     borderRadius: 12,
@@ -274,9 +258,7 @@ const styles = StyleSheet.create({
     color: C.fg,
     fontSize: 14,
   },
-  inputError: {
-    borderColor: C.error,
-  },
+  inputError: { borderColor: C.error },
   errorBox: {
     backgroundColor: '#2a0a0a',
     borderRadius: 10,
@@ -284,10 +266,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#7f1d1d',
   },
-  errorText: {
-    color: C.error,
-    fontSize: 13,
-  },
+  errorText: { color: C.error, fontSize: 13 },
   btn: {
     backgroundColor: C.primary,
     borderRadius: 12,
@@ -299,29 +278,9 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 8,
   },
-  btnDisabled: {
-    backgroundColor: '#0d2a28',
-    shadowOpacity: 0,
-    elevation: 0,
-  },
-  btnText: {
-    color: C.primaryFg,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  loginRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingTop: 4,
-  },
-  loginHint: {
-    color: C.fgMuted,
-    fontSize: 13,
-  },
-  loginLink: {
-    color: C.primary,
-    fontSize: 13,
-    fontWeight: '600',
-  },
+  btnDisabled: { backgroundColor: '#0d2a28', shadowOpacity: 0, elevation: 0 },
+  btnText: { color: C.primaryFg, fontSize: 14, fontWeight: '700' },
+  loginRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingTop: 4 },
+  loginHint: { color: C.fgMuted, fontSize: 13 },
+  loginLink: { color: C.primary, fontSize: 13, fontWeight: '600' },
 })

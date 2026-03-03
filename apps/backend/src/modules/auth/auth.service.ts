@@ -11,6 +11,12 @@ export interface RegisterDto {
   password: string
   role: 'driver' | 'rider'
   phone?: string
+  // Driver-only
+  document?: string
+  licensePlate?: string
+  vehicleModel?: string
+  vehicleYear?: number
+  vehicleColor?: string
 }
 
 export interface LoginDto {
@@ -43,6 +49,11 @@ export class AuthService {
       passwordHash,
       phone: data.phone || undefined,
       role: data.role,
+      document: data.document || undefined,
+      licensePlate: data.licensePlate || undefined,
+      vehicleModel: data.vehicleModel || undefined,
+      vehicleYear: data.vehicleYear || undefined,
+      vehicleColor: data.vehicleColor || undefined,
     })
 
     const token = jwt.sign(

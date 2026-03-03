@@ -7,6 +7,11 @@ export interface CreateUserDto {
   role: 'driver' | 'rider' | 'admin'
   phone?: string
   profileImage?: string
+  document?: string
+  licensePlate?: string
+  vehicleModel?: string
+  vehicleYear?: number
+  vehicleColor?: string
 }
 
 export interface UpdateUserDto {
@@ -16,6 +21,13 @@ export interface UpdateUserDto {
   profileImage?: string
   isActive?: boolean
   isApproved?: boolean
+  document?: string
+  licensePlate?: string
+  vehicleModel?: string
+  vehicleYear?: number
+  vehicleColor?: string
+  driverLicenseImage?: string
+  vehicleDocImage?: string
 }
 
 export class UserService {

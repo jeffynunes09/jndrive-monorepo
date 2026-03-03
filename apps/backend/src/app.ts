@@ -8,6 +8,7 @@ import { initWebSocket } from './infrastructure/websocket/socket'
 import authRoutes from './modules/auth/auth.routes'
 import rideRoutes from './modules/ride/ride.routes'
 import geocodeRoutes from './modules/geocode/geocode.routes'
+import { userRoutes } from './modules/user/user.module'
 
 const app = express()
 const httpServer = createServer(app)
@@ -25,6 +26,7 @@ app.use(express.urlencoded({ extended: true }))
 
 app.use('/api/auth', authRoutes)
 app.use('/api', rideRoutes)
+app.use('/api', userRoutes)
 app.use('/api/geocode', geocodeRoutes)
 app.get('/health', (_, res) => res.json({ status: 'ok' }))
 

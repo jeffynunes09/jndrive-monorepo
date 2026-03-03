@@ -27,40 +27,64 @@ const C = {
 }
 
 export default function RegisterScreen() {
+  // Step 1: dados pessoais
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  // Step 2: dados do veículo
+  const [document, setDocument] = useState('')
+  const [licensePlate, setLicensePlate] = useState('')
+  const [vehicleModel, setVehicleModel] = useState('')
+  const [vehicleYear, setVehicleYear] = useState('')
+  const [vehicleColor, setVehicleColor] = useState('')
+
+  const [step, setStep] = useState<1 | 2>(1)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  async function handleRegister() {
+  function handleNextStep() {
     setError(null)
-
     if (!name.trim() || !email.trim() || !password) {
       setError('Preencha todos os campos obrigatórios')
       return
     }
-
     if (password.length < 6) {
       setError('A senha deve ter no mínimo 6 caracteres')
       return
     }
-
     if (password !== confirmPassword) {
       setError('As senhas não coincidem')
       return
     }
+    setStep(2)
+  }
+
+  async function handleRegister() {
+    setError(null)
+    if (!document.trim() || !licensePlate.trim() || !vehicleModel.trim() || !vehicleYear.trim() || !vehicleColor.trim()) {
+      setError('Preencha todos os dados do veículo')
+      return
+    }
+    const year = parseInt(vehicleYear, 10)
+    if (isNaN(year) || year < 1990 || year > new Date().getFullYear() + 1) {
+      setError('Ano do veículo inválido')
+      return
+    }
 
     setLoading(true)
-
     try {
       const result = await register({
         name: name.trim(),
         email: email.trim(),
         password,
         phone: phone.trim() || undefined,
+        document: document.trim(),
+        licensePlate: licensePlate.trim().toUpperCase(),
+        vehicleModel: vehicleModel.trim(),
+        vehicleYear: year,
+        vehicleColor: vehicleColor.trim(),
       })
       await saveAuth(result.token, result.user)
       router.replace({ pathname: '/home', params: { driverId: result.user.id } })
@@ -70,13 +94,6 @@ export default function RegisterScreen() {
       setLoading(false)
     }
   }
-
-  const canSubmit =
-    name.trim().length > 0 &&
-    email.trim().length > 0 &&
-    password.length > 0 &&
-    confirmPassword.length > 0 &&
-    !loading
 
   return (
     <KeyboardAvoidingView
@@ -99,98 +116,201 @@ export default function RegisterScreen() {
           </View>
         </View>
 
-        {/* Form */}
         <View style={styles.card}>
-          <Text style={styles.title}>Criar conta</Text>
-
-          <View style={styles.field}>
-            <Text style={styles.label}>Nome completo *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Seu nome"
-              placeholderTextColor={C.fgMuted}
-              value={name}
-              onChangeText={setName}
-              autoCapitalize="words"
-              editable={!loading}
-            />
+          {/* Step indicator */}
+          <View style={styles.stepRow}>
+            <View style={[styles.stepDot, step >= 1 && styles.stepDotActive]} />
+            <View style={[styles.stepLine, step >= 2 && styles.stepLineActive]} />
+            <View style={[styles.stepDot, step >= 2 && styles.stepDotActive]} />
           </View>
+          <Text style={styles.title}>
+            {step === 1 ? 'Dados pessoais' : 'Dados do veículo'}
+          </Text>
 
-          <View style={styles.field}>
-            <Text style={styles.label}>E-mail *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="seu@email.com"
-              placeholderTextColor={C.fgMuted}
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoCorrect={false}
-              editable={!loading}
-            />
-          </View>
+          {step === 1 ? (
+            <>
+              <View style={styles.field}>
+                <Text style={styles.label}>Nome completo *</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Seu nome"
+                  placeholderTextColor={C.fgMuted}
+                  value={name}
+                  onChangeText={setName}
+                  autoCapitalize="words"
+                  editable={!loading}
+                />
+              </View>
 
-          <View style={styles.field}>
-            <Text style={styles.label}>Telefone (opcional)</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="+55 11 99999-9999"
-              placeholderTextColor={C.fgMuted}
-              value={phone}
-              onChangeText={setPhone}
-              keyboardType="phone-pad"
-              editable={!loading}
-            />
-          </View>
+              <View style={styles.field}>
+                <Text style={styles.label}>E-mail *</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="seu@email.com"
+                  placeholderTextColor={C.fgMuted}
+                  value={email}
+                  onChangeText={setEmail}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  editable={!loading}
+                />
+              </View>
 
-          <View style={styles.field}>
-            <Text style={styles.label}>Senha *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Mínimo 6 caracteres"
-              placeholderTextColor={C.fgMuted}
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              editable={!loading}
-            />
-          </View>
+              <View style={styles.field}>
+                <Text style={styles.label}>Telefone (opcional)</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="+55 11 99999-9999"
+                  placeholderTextColor={C.fgMuted}
+                  value={phone}
+                  onChangeText={setPhone}
+                  keyboardType="phone-pad"
+                  editable={!loading}
+                />
+              </View>
 
-          <View style={styles.field}>
-            <Text style={styles.label}>Confirmar senha *</Text>
-            <TextInput
-              style={[
-                styles.input,
-                confirmPassword.length > 0 && password !== confirmPassword && styles.inputError,
-              ]}
-              placeholder="Repita a senha"
-              placeholderTextColor={C.fgMuted}
-              value={confirmPassword}
-              onChangeText={setConfirmPassword}
-              secureTextEntry
-              editable={!loading}
-            />
-          </View>
+              <View style={styles.field}>
+                <Text style={styles.label}>Senha *</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Mínimo 6 caracteres"
+                  placeholderTextColor={C.fgMuted}
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry
+                  editable={!loading}
+                />
+              </View>
 
-          {error && (
-            <View style={styles.errorBox}>
-              <Text style={styles.errorText}>{error}</Text>
-            </View>
+              <View style={styles.field}>
+                <Text style={styles.label}>Confirmar senha *</Text>
+                <TextInput
+                  style={[
+                    styles.input,
+                    confirmPassword.length > 0 && password !== confirmPassword && styles.inputError,
+                  ]}
+                  placeholder="Repita a senha"
+                  placeholderTextColor={C.fgMuted}
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                  secureTextEntry
+                  editable={!loading}
+                />
+              </View>
+
+              {error && (
+                <View style={styles.errorBox}>
+                  <Text style={styles.errorText}>{error}</Text>
+                </View>
+              )}
+
+              <TouchableOpacity
+                style={[styles.btn, (!name.trim() || !email.trim() || !password || !confirmPassword) && styles.btnDisabled]}
+                onPress={handleNextStep}
+                disabled={!name.trim() || !email.trim() || !password || !confirmPassword}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.btnText}>Próximo →</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <View style={styles.field}>
+                <Text style={styles.label}>CPF *</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="000.000.000-00"
+                  placeholderTextColor={C.fgMuted}
+                  value={document}
+                  onChangeText={setDocument}
+                  keyboardType="numeric"
+                  editable={!loading}
+                />
+              </View>
+
+              <View style={styles.field}>
+                <Text style={styles.label}>Placa do veículo *</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="ABC1D23"
+                  placeholderTextColor={C.fgMuted}
+                  value={licensePlate}
+                  onChangeText={setLicensePlate}
+                  autoCapitalize="characters"
+                  editable={!loading}
+                />
+              </View>
+
+              <View style={styles.field}>
+                <Text style={styles.label}>Modelo do veículo *</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Ex: Honda Civic"
+                  placeholderTextColor={C.fgMuted}
+                  value={vehicleModel}
+                  onChangeText={setVehicleModel}
+                  autoCapitalize="words"
+                  editable={!loading}
+                />
+              </View>
+
+              <View style={styles.field}>
+                <Text style={styles.label}>Ano do veículo *</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Ex: 2020"
+                  placeholderTextColor={C.fgMuted}
+                  value={vehicleYear}
+                  onChangeText={setVehicleYear}
+                  keyboardType="numeric"
+                  maxLength={4}
+                  editable={!loading}
+                />
+              </View>
+
+              <View style={styles.field}>
+                <Text style={styles.label}>Cor do veículo *</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Ex: Prata"
+                  placeholderTextColor={C.fgMuted}
+                  value={vehicleColor}
+                  onChangeText={setVehicleColor}
+                  autoCapitalize="sentences"
+                  editable={!loading}
+                />
+              </View>
+
+              {error && (
+                <View style={styles.errorBox}>
+                  <Text style={styles.errorText}>{error}</Text>
+                </View>
+              )}
+
+              <TouchableOpacity
+                style={styles.btnSecondary}
+                onPress={() => { setStep(1); setError(null) }}
+                disabled={loading}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.btnSecondaryText}>← Voltar</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.btn, loading && styles.btnDisabled]}
+                onPress={handleRegister}
+                disabled={loading}
+                activeOpacity={0.85}
+              >
+                {loading ? (
+                  <ActivityIndicator color={C.primaryFg} size="small" />
+                ) : (
+                  <Text style={styles.btnText}>Cadastrar</Text>
+                )}
+              </TouchableOpacity>
+            </>
           )}
-
-          <TouchableOpacity
-            style={[styles.btn, !canSubmit && styles.btnDisabled]}
-            onPress={handleRegister}
-            disabled={!canSubmit}
-            activeOpacity={0.85}
-          >
-            {loading ? (
-              <ActivityIndicator color={C.primaryFg} size="small" />
-            ) : (
-              <Text style={styles.btnText}>Cadastrar</Text>
-            )}
-          </TouchableOpacity>
 
           <View style={styles.loginRow}>
             <Text style={styles.loginHint}>Já tem conta? </Text>
@@ -266,6 +386,32 @@ const styles = StyleSheet.create({
     borderColor: C.border,
     gap: 16,
   },
+  stepRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 0,
+    marginBottom: 4,
+  },
+  stepDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: C.border,
+  },
+  stepDotActive: {
+    backgroundColor: C.primary,
+  },
+  stepLine: {
+    flex: 1,
+    height: 2,
+    backgroundColor: C.border,
+    marginHorizontal: 6,
+    maxWidth: 60,
+  },
+  stepLineActive: {
+    backgroundColor: C.primary,
+  },
   title: {
     fontSize: 20,
     fontWeight: '700',
@@ -323,6 +469,18 @@ const styles = StyleSheet.create({
     color: C.primaryFg,
     fontSize: 14,
     fontWeight: '700',
+  },
+  btnSecondary: {
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  btnSecondaryText: {
+    color: C.fgMuted,
+    fontSize: 14,
+    fontWeight: '600',
   },
   loginRow: {
     flexDirection: 'row',

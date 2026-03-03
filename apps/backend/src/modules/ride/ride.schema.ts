@@ -18,6 +18,7 @@ export interface ICoordinate {
 }
 
 export interface IRide extends Document {
+  id: string
   riderId: string
   driverId?: string
   origin: ICoordinate

@@ -9,6 +9,14 @@ export interface IUser extends Document {
   profileImage?: string
   isActive: boolean
   isApproved: boolean
+  // Driver-only fields
+  document?: string        // CPF
+  licensePlate?: string
+  vehicleModel?: string
+  vehicleYear?: number
+  vehicleColor?: string
+  driverLicenseImage?: string  // S3 key
+  vehicleDocImage?: string     // S3 key
   createdAt: Date
   updatedAt: Date
 }
@@ -23,6 +31,13 @@ const UserSchema = new Schema<IUser>(
     profileImage: { type: String },
     isActive: { type: Boolean, default: true },
     isApproved: { type: Boolean, default: false },
+    document: { type: String, unique: true, sparse: true },
+    licensePlate: { type: String, unique: true, sparse: true },
+    vehicleModel: { type: String },
+    vehicleYear: { type: Number },
+    vehicleColor: { type: String },
+    driverLicenseImage: { type: String },
+    vehicleDocImage: { type: String },
   },
   { timestamps: true }
 )
