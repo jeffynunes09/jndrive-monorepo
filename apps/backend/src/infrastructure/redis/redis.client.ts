@@ -1,67 +1,59 @@
-import { createClient, RedisClientType } from 'redis'
+import Redis from "ioredis";
 
+let redis: Redis;
 
-let redisClient: RedisClientType;
-
-export async function getRedisClient(): Promise<RedisClientType> {
-  if (!redisClient) {
-    redisClient = createClient({
-      url: process.env.REDIS_URL,
-      socket: {
-        tls: true,
-        rejectUnauthorized: false,
-        reconnectStrategy: (retries) => {
-          console.log(`Redis reconnect attempt: ${retries}`);
-          return Math.min(retries * 100, 3000);
-        }
-      }
+export function getRedisClient() {
+  if (!redis) {
+    redis = new Redis(process.env.REDIS_URL!, {
+      maxRetriesPerRequest: null,
+      enableReadyCheck: false,
     });
 
-    redisClient.on("connect", () => {
+    redis.on("connect", () => {
       console.log("✅ Redis connected");
     });
 
-    redisClient.on("error", (err) => {
+    redis.on("error", (err) => {
       console.error("❌ Redis error:", err);
     });
-
-    redisClient.on("reconnecting", () => {
-      console.log("♻️ Redis reconnecting...");
-    });
-
-    await redisClient.connect();
   }
 
-  return redisClient;
+  return redis;
 }
 
-// Key patterns
-export const RedisKeys = {
-  driverLocation: (driverId: string) => `driver:${driverId}:location`,
-  activeRide: (driverId: string) => `ride:active:driver:${driverId}`,
-  driverHeartbeat: (driverId: string) => `driver:${driverId}:heartbeat`,
-  nearbyDrivers: (lat: number, lng: number) => `nearby:${lat}:${lng}`,
-}
+const DRIVERS_GEO_KEY = "drivers:online";
 
-const DRIVERS_GEO_KEY = 'drivers:online'
-
-export async function addDriverLocation(driverId: string, lat: number, lng: number): Promise<void> {
-  const client = await getRedisClient()
-  await client.geoAdd(DRIVERS_GEO_KEY, { longitude: lng, latitude: lat, member: driverId })
+export async function addDriverLocation(
+  driverId: string,
+  lat: number,
+  lng: number
+): Promise<void> {
+  const client = getRedisClient();
+  await client.geoadd(DRIVERS_GEO_KEY, lng, lat, driverId);
 }
 
 export async function removeDriverLocation(driverId: string): Promise<void> {
-  const client = await getRedisClient()
-  await client.zRem(DRIVERS_GEO_KEY, driverId)
+  const client = getRedisClient();
+  await client.zrem(DRIVERS_GEO_KEY, driverId);
 }
 
-export async function getNearbyDrivers(lat: number, lng: number, radiusKm: number): Promise<string[]> {
-  const client = await getRedisClient()
-  const results = await client.geoSearch(
+export async function getNearbyDrivers(
+  lat: number,
+  lng: number,
+  radiusKm: number
+): Promise<string[]> {
+  const client = getRedisClient();
+
+  const results = await client.geosearch(
     DRIVERS_GEO_KEY,
-    { longitude: lng, latitude: lat },
-    { radius: radiusKm, unit: 'km' },
-    { SORT: 'ASC' }
-  )
-  return results
+    "FROMLONLAT",
+    lng,
+    lat,
+    "BYRADIUS",
+    radiusKm,
+    "km",
+    "ASC"
+  );
+
+  return results as string[];
 }
