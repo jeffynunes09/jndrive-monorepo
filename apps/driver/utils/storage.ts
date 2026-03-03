@@ -2,12 +2,20 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 
 const TOKEN_KEY = '@jndrive_driver_token'
 const USER_KEY = '@jndrive_driver_user'
+const ACTIVE_RIDE_KEY = '@jndrive_driver_active_ride'
 
 export interface StoredUser {
   id: string
   name: string
   email: string
   role: string
+}
+
+export interface StoredActiveRide {
+  rideId: string
+  status: string
+  origin: { lat: number; lng: number; address: string }
+  destination: { lat: number; lng: number; address: string }
 }
 
 export async function saveAuth(token: string, user: StoredUser): Promise<void> {
@@ -26,7 +34,6 @@ export async function getStoredUser(): Promise<StoredUser | null> {
   if (!raw) return null
   try {
     const parsed = JSON.parse(raw)
-    // normaliza: dados antigos podem ter sido salvos com _id em vez de id
     return { ...parsed, id: parsed.id ?? parsed._id } as StoredUser
   } catch {
     return null
@@ -34,5 +41,23 @@ export async function getStoredUser(): Promise<StoredUser | null> {
 }
 
 export async function clearAuth(): Promise<void> {
-  await AsyncStorage.multiRemove([TOKEN_KEY, USER_KEY])
+  await AsyncStorage.multiRemove([TOKEN_KEY, USER_KEY, ACTIVE_RIDE_KEY])
+}
+
+export async function saveActiveRide(ride: StoredActiveRide): Promise<void> {
+  await AsyncStorage.setItem(ACTIVE_RIDE_KEY, JSON.stringify(ride))
+}
+
+export async function getActiveRide(): Promise<StoredActiveRide | null> {
+  const raw = await AsyncStorage.getItem(ACTIVE_RIDE_KEY)
+  if (!raw) return null
+  try {
+    return JSON.parse(raw) as StoredActiveRide
+  } catch {
+    return null
+  }
+}
+
+export async function clearActiveRide(): Promise<void> {
+  await AsyncStorage.removeItem(ACTIVE_RIDE_KEY)
 }

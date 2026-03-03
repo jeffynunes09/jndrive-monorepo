@@ -13,6 +13,14 @@ import * as Location from 'expo-location'
 import { useLocalSearchParams } from 'expo-router'
 import { getSocket } from '../utils/socket'
 import { geocodeAddress, reverseGeocodeLocation } from '../utils/api'
+import {
+  getToken,
+  getStoredUser,
+  saveActiveRide,
+  getActiveRide,
+  clearActiveRide,
+  StoredActiveRide,
+} from '../utils/storage'
 
 type RideStatus = 'searching_driver' | 'driver_assigned' | 'in_progress' | 'payment_pending' | 'paid' | 'completed' | 'cancelled'
 
@@ -44,10 +52,27 @@ interface RideInfo {
   otp: string | null
 }
 
+interface RestoredRide {
+  id?: string
+  _id?: string
+  riderId: string
+  driverId?: string
+  origin: { lat: number; lng: number; address: string }
+  destination: { lat: number; lng: number; address: string }
+  status: string
+  otp: string
+  otpVerified: boolean
+  fare?: number
+  distance?: number
+  duration?: number
+  geometry?: [number, number][]
+}
+
 export default function HomeScreen() {
-  const { userId } = useLocalSearchParams<{ userId: string }>()
+  const { userId: paramUserId } = useLocalSearchParams<{ userId: string }>()
   const mapRef = useRef<MapView>(null)
 
+  const [userId, setUserId] = useState(paramUserId ?? '')
   const [connected, setConnected] = useState(false)
   const [riderLocation, setRiderLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [locationReady, setLocationReady] = useState(false)
@@ -67,8 +92,36 @@ export default function HomeScreen() {
   const driverFitDone = useRef(false)
   const riderLocationRef = useRef(riderLocation)
   riderLocationRef.current = riderLocation
+  const destCoordRef = useRef(destCoord)
+  destCoordRef.current = destCoord
 
-  // GPS location + reverse geocode da origem em background
+  useEffect(() => {
+    async function init() {
+      if (!paramUserId) {
+        const u = await getStoredUser()
+        if (u?.id) setUserId(u.id)
+      }
+      const stored = await getActiveRide()
+      if (stored) {
+        setRideInfo({
+          rideId: stored.rideId,
+          distance: stored.distance,
+          duration: stored.duration,
+          fare: stored.fare,
+          otp: stored.otp,
+        })
+        setRideStatus(stored.status as RideStatus)
+        setDestCoord({ lat: stored.destination.lat, lng: stored.destination.lng })
+        if (stored.driverId) setDriverInfo(stored.driverId)
+        if (stored.geometry && stored.geometry.length > 0) {
+          const coords: LatLng[] = stored.geometry.map(([lng, lat]) => ({ latitude: lat, longitude: lng }))
+          setRouteCoords(coords)
+        }
+      }
+    }
+    init()
+  }, [])
+
   useEffect(() => {
     ;(async () => {
       const { status } = await Location.requestForegroundPermissionsAsync()
@@ -88,7 +141,6 @@ export default function HomeScreen() {
     })()
   }, [])
 
-  // Quando a localização do usuário chega (GPS ou manual), centraliza o mapa nela
   useEffect(() => {
     if (!riderLocation) return
     mapRef.current?.animateToRegion({
@@ -120,16 +172,62 @@ export default function HomeScreen() {
     }, 800)
   }
 
-  // Socket events
   useEffect(() => {
     const socket = getSocket()
-    socket.connect()
+
+    getToken().then(token => {
+      socket.auth = { token: token ?? '' }
+      if (!socket.connected) {
+        socket.connect()
+      } else {
+        socket.emit('GET_RIDE_STATE')
+      }
+    })
+
     if (socket.connected) setConnected(true)
 
     socket.on('connect', () => setConnected(true))
     socket.on('disconnect', () => setConnected(false))
 
-    // Confirmação de criação da corrida com rota calculada
+    socket.on('RIDE_RESTORE', (ride: RestoredRide | null) => {
+      if (!ride) {
+        clearActiveRide()
+        setRideInfo(null)
+        setRideStatus(null)
+        setDestCoord(null)
+        setDriverInfo(null)
+        setRouteCoords(null)
+        return
+      }
+      const rideId = ride.id ?? (ride as any)._id?.toString() ?? ''
+      const otp = !ride.otpVerified ? ride.otp : null
+
+      setRideInfo({ rideId, distance: ride.distance ?? null, duration: ride.duration ?? null, fare: ride.fare ?? null, otp })
+      setRideStatus(ride.status as RideStatus)
+      setDestCoord({ lat: ride.destination.lat, lng: ride.destination.lng })
+      if (ride.driverId) setDriverInfo(ride.driverId)
+      if (ride.geometry && ride.geometry.length > 0) {
+        const coords: LatLng[] = ride.geometry.map(([lng, lat]) => ({ latitude: lat, longitude: lng }))
+        setRouteCoords(coords)
+        mapRef.current?.fitToCoordinates(coords, {
+          edgePadding: { top: 80, right: 60, bottom: 280, left: 60 },
+          animated: true,
+        })
+      }
+      saveActiveRide({
+        rideId,
+        status: ride.status,
+        origin: ride.origin,
+        destination: ride.destination,
+        otp,
+        fare: ride.fare ?? null,
+        distance: ride.distance ?? null,
+        duration: ride.duration ?? null,
+        driverId: ride.driverId,
+        geometry: ride.geometry,
+      })
+    })
+
     socket.on('RIDE_CREATED', ({
       rideId,
       distance,
@@ -143,10 +241,26 @@ export default function HomeScreen() {
       fare: number | null
       geometry: [number, number][] | null
     }) => {
-      console.log('[rider] RIDE_CREATED recebido:', { rideId, distance, duration, fare })
       setRideInfo({ rideId, distance, duration, fare, otp: null })
       setRideStatus('searching_driver')
       setLoading(false)
+
+      const currentDest = destCoordRef.current
+      const currentRider = riderLocationRef.current
+
+      if (currentDest && currentRider) {
+        saveActiveRide({
+          rideId,
+          status: 'searching_driver',
+          origin: { lat: currentRider.lat, lng: currentRider.lng, address: originAddress ?? '' },
+          destination: { lat: currentDest.lat, lng: currentDest.lng, address: destination },
+          otp: null,
+          fare,
+          distance,
+          duration,
+          geometry: geometry ?? undefined,
+        })
+      }
 
       if (geometry && geometry.length > 0) {
         const coords: LatLng[] = geometry.map(([lng, lat]) => ({ latitude: lat, longitude: lng }))
@@ -159,19 +273,36 @@ export default function HomeScreen() {
     })
 
     socket.on('RIDE_STATUS_UPDATE', ({ status, driverId, otp }: { rideId: string; status: RideStatus; driverId?: string; otp?: string }) => {
-      console.log('[rider] RIDE_STATUS_UPDATE recebido:', { status, driverId, otp })
       setRideStatus(status)
       if (driverId) setDriverInfo(driverId)
-      // Salva OTP quando motorista aceita (visível ao passageiro para informar ao motorista)
       if (otp) {
         setRideInfo(prev => prev ? { ...prev, otp } : null)
       }
-      // Esconde OTP quando corrida inicia ou termina
       if (status === 'in_progress' || status === 'completed' || status === 'cancelled') {
         setRideInfo(prev => prev ? { ...prev, otp: null } : null)
       }
       if (status === 'completed' || status === 'cancelled' || status === 'paid') {
         setLoading(false)
+      }
+      if (status === 'completed' || status === 'cancelled') {
+        clearActiveRide()
+      } else {
+        setRideInfo(prev => {
+          if (prev) {
+            saveActiveRide({
+              rideId: prev.rideId,
+              status,
+              origin: { lat: riderLocationRef.current?.lat ?? 0, lng: riderLocationRef.current?.lng ?? 0, address: originAddress ?? '' },
+              destination: { lat: destCoord?.lat ?? 0, lng: destCoord?.lng ?? 0, address: destination },
+              otp: otp ?? (status === 'in_progress' ? null : prev.otp),
+              fare: prev.fare,
+              distance: prev.distance,
+              duration: prev.duration,
+              driverId: driverId ?? undefined,
+            })
+          }
+          return prev
+        })
       }
     })
 
@@ -189,13 +320,13 @@ export default function HomeScreen() {
     })
 
     socket.on('RIDE_ERROR', ({ error }: { error: string }) => {
-      console.error('[rider] RIDE_ERROR recebido:', error)
       setLoading(false)
     })
 
     return () => {
       socket.off('connect')
       socket.off('disconnect')
+      socket.off('RIDE_RESTORE')
       socket.off('RIDE_CREATED')
       socket.off('RIDE_STATUS_UPDATE')
       socket.off('DRIVER_LOCATION_BROADCAST')
@@ -206,7 +337,6 @@ export default function HomeScreen() {
   async function requestRide() {
     if (!riderLocation || !destination.trim()) return
 
-    console.log('[rider] requestRide chamado — userId:', userId)
     setGeocodeError(null)
     setRouteCoords(null)
     driverFitDone.current = false
@@ -215,9 +345,7 @@ export default function HomeScreen() {
     setDriverInfo(null)
     setRideInfo(null)
 
-    console.log('[rider] PASSO 1 — geocodando destino:', destination.trim())
     const geocoded = await geocodeAddress(destination.trim())
-    console.log('[rider] PASSO 2 — geocode resultado:', geocoded)
     if (!geocoded) {
       setGeocodeError('Endereço não encontrado. Tente ser mais específico.')
       setLoading(false)
@@ -227,7 +355,7 @@ export default function HomeScreen() {
     setDestCoord({ lat: geocoded.lat, lng: geocoded.lng })
 
     const socket = getSocket()
-    const payload = {
+    socket.emit('ride:create', {
       riderId: userId,
       origin: {
         lat: riderLocation.lat,
@@ -239,13 +367,11 @@ export default function HomeScreen() {
         lng: geocoded.lng,
         address: geocoded.address,
       },
-    }
-    console.log('[rider] PASSO 3 — emitindo ride:create:', JSON.stringify(payload))
-    socket.emit('ride:create', payload)
-    console.log('[rider] PASSO 4 — emit feito, aguardando RIDE_CREATED')
+    })
   }
 
   function resetRide() {
+    clearActiveRide()
     setRideStatus(null)
     setDriverInfo(null)
     setDriverLocation(null)
@@ -262,7 +388,6 @@ export default function HomeScreen() {
   const isRideActive = rideStatus !== null && rideStatus !== 'completed' && rideStatus !== 'cancelled'
   const isRideEnded = rideStatus === 'completed' || rideStatus === 'cancelled' || rideStatus === 'paid'
 
-  // useMemo evita nova referência de array a cada render causado por driverLocation
   const polylineCoords = useMemo<LatLng[]>(() => {
     if (!isRideActive) return []
     if (routeCoords) return routeCoords
@@ -289,7 +414,6 @@ export default function HomeScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Mapa */}
       <MapView
         ref={mapRef}
         style={StyleSheet.absoluteFillObject}
@@ -339,14 +463,12 @@ export default function HomeScreen() {
         </View>
       )}
 
-      {/* Bottom sheet */}
       <View style={styles.bottomSheet}>
         <View style={styles.statusRow}>
           <View style={[styles.dot, { backgroundColor: connected ? '#22c55e' : '#ef4444' }]} />
           <Text style={styles.statusText}>{connected ? 'Conectado' : 'Desconectado'}</Text>
         </View>
 
-        {/* Formulário de solicitação */}
         {!isRideActive && !isRideEnded && (
           <>
             <View style={styles.originRow}>
@@ -400,7 +522,6 @@ export default function HomeScreen() {
           </>
         )}
 
-        {/* Corrida ativa */}
         {isRideActive && (
           <View style={styles.rideActiveContainer}>
             <View
@@ -428,7 +549,6 @@ export default function HomeScreen() {
               </TouchableOpacity>
             )}
 
-            {/* Detalhes da rota (distância, tempo, tarifa) */}
             {rideInfo && (
               <View style={styles.routeInfoRow}>
                 {rideInfo.distance != null && (
@@ -454,7 +574,6 @@ export default function HomeScreen() {
               </View>
             )}
 
-            {/* OTP — visível ao passageiro para informar ao motorista no embarque */}
             {rideInfo?.otp && rideStatus === 'driver_assigned' && (
               <View style={styles.otpCard}>
                 <Text style={styles.otpCardLabel}>Código de embarque</Text>
@@ -472,7 +591,6 @@ export default function HomeScreen() {
           </View>
         )}
 
-        {/* Corrida encerrada */}
         {isRideEnded && (
           <View style={styles.rideActiveContainer}>
             <View
@@ -575,7 +693,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   statusBadgeText: { fontSize: 14, fontWeight: '600' },
-  // Chips de distância / tempo / tarifa
   routeInfoRow: {
     flexDirection: 'row',
     gap: 8,
@@ -598,7 +715,6 @@ const styles = StyleSheet.create({
   routeInfoLabel: { color: '#6b7280', fontSize: 10, fontWeight: '600', textTransform: 'uppercase' },
   routeInfoValue: { color: '#e5e7eb', fontSize: 14, fontWeight: '700' },
   fareValue: { color: '#60a5fa', fontSize: 15, fontWeight: '800' },
-  // Cartão OTP
   otpCard: {
     backgroundColor: '#0d1f3c',
     borderRadius: 12,
@@ -618,7 +734,6 @@ const styles = StyleSheet.create({
   },
   driverCardLabel: { color: '#6b7280', fontSize: 11, marginBottom: 2 },
   driverCardValue: { color: '#e5e7eb', fontSize: 14, fontWeight: '500' },
-  // Tela de fim de corrida
   finalFareCard: {
     backgroundColor: '#0d1f3c',
     borderRadius: 12,

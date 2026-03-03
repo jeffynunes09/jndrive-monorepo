@@ -112,7 +112,7 @@ export default function ProfileScreen() {
 
   async function handleLogout() {
     await clearAuth()
-    router.replace('/')
+    router.replace('/login')
   }
 
   const profileImageUrl = profile?.profileImage

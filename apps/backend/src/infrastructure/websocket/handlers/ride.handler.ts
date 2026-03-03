@@ -2,6 +2,7 @@ import { Socket } from 'socket.io'
 import { CreateRideDto, RideService } from '../../../modules/ride/ride.service'
 import { SocketEvents } from 'shared-events'
 import { getIO, DriverSocketManager } from '../socket'
+import { rideExpiryQueue } from '../../queue/queue'
 
 
 const rideService = new RideService()
@@ -22,6 +23,8 @@ export function registerRideHandlers(socket: Socket): void {
 
       const { ride, driverIds } = await rideService.requestRide(payload)
       console.log(`[WS] corrida criada: ${ride._id} | driverIds próximos: [${driverIds.join(', ')}]`)
+
+      await rideExpiryQueue.add('expire', { rideId: ride.id }, { delay: 60_000 })
 
       // Rider entra na sua sala de notificações
       if (payload.riderId) {
@@ -168,5 +171,17 @@ export function registerRideHandlers(socket: Socket): void {
     socket.data.userId = userId
     socket.join(`${role}:${userId}`)
     console.log(`[WS] ${role} ${userId} joined room`)
+  })
+
+  socket.on(SocketEvents.GET_RIDE_STATE, async () => {
+    const userId = socket.data.userId as string | undefined
+    const role = socket.data.role as string | undefined
+    if (!userId || !role) return
+    const activeRide = await rideService.findActiveRideForUser(userId, role)
+    if (activeRide) {
+      const room = role === 'driver' ? `driver:${userId}` : `user:${userId}`
+      socket.join(room)
+    }
+    socket.emit('RIDE_RESTORE', activeRide ?? null)
   })
 }

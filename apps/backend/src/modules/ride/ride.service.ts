@@ -140,4 +140,12 @@ export class RideService {
       { new: true }
     )
   }
+
+  async findActiveRideForUser(userId: string, role: string): Promise<IRide | null> {
+    const activeStatuses: RideStatus[] = ['searching_driver', 'driver_assigned', 'in_progress', 'payment_pending']
+    const query = role === 'driver'
+      ? { driverId: userId, status: { $in: activeStatuses } }
+      : { riderId: userId, status: { $in: activeStatuses } }
+    return Ride.findOne(query).sort({ createdAt: -1 })
+  }
 }

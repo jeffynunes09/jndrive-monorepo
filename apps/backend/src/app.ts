@@ -9,6 +9,7 @@ import authRoutes from './modules/auth/auth.routes'
 import rideRoutes from './modules/ride/ride.routes'
 import geocodeRoutes from './modules/geocode/geocode.routes'
 import { userRoutes } from './modules/user/user.module'
+import './workers/rideExpiry.worker'
 
 const app = express()
 const httpServer = createServer(app)

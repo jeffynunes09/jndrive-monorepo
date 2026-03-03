@@ -13,6 +13,14 @@ import MapView, { Marker, Polyline, PROVIDER_GOOGLE, LatLng } from 'react-native
 import * as Location from 'expo-location'
 import { useLocalSearchParams } from 'expo-router'
 import { getSocket } from '../utils/socket'
+import {
+  getToken,
+  getStoredUser,
+  saveActiveRide,
+  getActiveRide,
+  clearActiveRide,
+  StoredActiveRide,
+} from '../utils/storage'
 
 interface IncomingRide {
   rideId: string
@@ -30,12 +38,29 @@ interface ActiveRide {
   destination: { lat: number; lng: number; address: string }
 }
 
+interface RestoredRide {
+  id?: string
+  _id?: string
+  riderId: string
+  driverId?: string
+  origin: { lat: number; lng: number; address: string }
+  destination: { lat: number; lng: number; address: string }
+  status: string
+  otp: string
+  otpVerified: boolean
+  fare?: number
+  distance?: number
+  duration?: number
+  geometry?: [number, number][]
+}
+
 type RidePhase = 'driver_assigned' | 'in_progress' | 'payment_pending' | 'paid' | 'completed' | 'cancelled' | null
 
 export default function HomeScreen() {
-  const { driverId } = useLocalSearchParams<{ driverId: string }>()
+  const { driverId: paramDriverId } = useLocalSearchParams<{ driverId: string }>()
   const mapRef = useRef<MapView>(null)
 
+  const [driverId, setDriverId] = useState(paramDriverId ?? '')
   const [connected, setConnected] = useState(false)
   const [isOnline, setIsOnline] = useState(false)
   const [driverLocation, setDriverLocation] = useState<{ lat: number; lng: number } | null>(null)
@@ -45,12 +70,10 @@ export default function HomeScreen() {
   const [routeCoords, setRouteCoords] = useState<LatLng[] | null>(null)
   const [locationReady, setLocationReady] = useState(false)
 
-  // OTP
   const [otpInput, setOtpInput] = useState('')
   const [otpError, setOtpError] = useState(false)
   const [otpLoading, setOtpLoading] = useState(false)
 
-  // Segunda corrida
   const [canAcceptSecondRide, setCanAcceptSecondRide] = useState(false)
   const [hasQueuedRide, setHasQueuedRide] = useState(false)
 
@@ -60,7 +83,24 @@ export default function HomeScreen() {
   const driverIdRef = useRef(driverId)
   driverIdRef.current = driverId
 
-  // GPS watch
+  const activeRideRef = useRef(activeRide)
+  activeRideRef.current = activeRide
+
+  useEffect(() => {
+    async function init() {
+      if (!paramDriverId) {
+        const u = await getStoredUser()
+        if (u?.id) setDriverId(u.id)
+      }
+      const stored = await getActiveRide()
+      if (stored) {
+        setActiveRide({ rideId: stored.rideId, origin: stored.origin, destination: stored.destination })
+        setRidePhase(stored.status as RidePhase)
+      }
+    }
+    init()
+  }, [])
+
   useEffect(() => {
     let subscription: Location.LocationSubscription | null = null
 
@@ -96,42 +136,83 @@ export default function HomeScreen() {
     }
   }, [])
 
-  // Socket events
   useEffect(() => {
     const socket = getSocket()
 
-    socket.connect()
+    getToken().then(token => {
+      socket.auth = { token: token ?? '' }
+      if (!socket.connected) {
+        socket.connect()
+      } else {
+        socket.emit('GET_RIDE_STATE')
+      }
+    })
+
     if (socket.connected) setConnected(true)
 
     socket.on('connect', () => setConnected(true))
     socket.on('disconnect', () => setConnected(false))
 
-    // Nova corrida disponível
+    socket.on('RIDE_RESTORE', (ride: RestoredRide | null) => {
+      if (!ride) {
+        clearActiveRide()
+        setActiveRide(null)
+        setRidePhase(null)
+        setRouteCoords(null)
+        return
+      }
+      const rideId = ride.id ?? (ride as any)._id?.toString() ?? ''
+      const restored: ActiveRide = { rideId, origin: ride.origin, destination: ride.destination }
+      setActiveRide(restored)
+      setRidePhase(ride.status as RidePhase)
+      if (ride.geometry && ride.geometry.length > 0) {
+        const coords: LatLng[] = ride.geometry.map(([lng, lat]) => ({ latitude: lat, longitude: lng }))
+        setRouteCoords(coords)
+        mapRef.current?.fitToCoordinates(coords, {
+          edgePadding: { top: 80, right: 60, bottom: 300, left: 60 },
+          animated: true,
+        })
+      }
+      saveActiveRide({
+        rideId,
+        status: ride.status,
+        origin: ride.origin,
+        destination: ride.destination,
+      })
+    })
+
     socket.on('RIDE_REQUEST', (ride: IncomingRide) => {
       setIncomingRide(ride)
     })
 
-    // Atualizações de status da corrida
     socket.on('RIDE_STATUS_UPDATE', ({ status, rideId }: { rideId: string; status: RidePhase }) => {
       setRidePhase(status)
       if (status === 'completed' || status === 'cancelled') {
-        // Limpa o estado da corrida atual — segunda corrida (se houver) será ativada via RIDE_ROUTE_UPDATE
+        clearActiveRide()
         if (!hasQueuedRide) {
           setActiveRide(null)
           setRouteCoords(null)
           setCanAcceptSecondRide(false)
           setHasQueuedRide(false)
         }
+      } else {
+        const current = activeRideRef.current
+        if (current && status) {
+          saveActiveRide({
+            rideId: current.rideId,
+            status,
+            origin: current.origin,
+            destination: current.destination,
+          })
+        }
       }
     })
 
-    // Backend confirma OTP inválido
     socket.on('OTP_INVALID', () => {
       setOtpError(true)
       setOtpLoading(false)
     })
 
-    // Backend confirma OTP correto — corrida iniciada
     socket.on('OTP_VERIFIED', () => {
       setOtpInput('')
       setOtpError(false)
@@ -139,7 +220,6 @@ export default function HomeScreen() {
       setRidePhase('in_progress')
     })
 
-    // Nova rota de navegação (driver→embarque ou embarque→destino, ou segunda corrida)
     socket.on('RIDE_ROUTE_UPDATE', ({
       rideId,
       phase,
@@ -154,21 +234,20 @@ export default function HomeScreen() {
       destinationRide?: { lat: number; lng: number; address: string }
       geometry: [number, number][] | null
     }) => {
-      // Quando phase === 'to_pickup' de uma nova corrida (segunda corrida iniciando),
-      // o rideId difere da corrida atual — atualiza activeRide
       setActiveRide(prev => {
         if (!prev || prev.rideId !== rideId) {
-          // Nova corrida se tornando ativa (segunda corrida iniciou)
           setCanAcceptSecondRide(false)
           setHasQueuedRide(false)
           setRidePhase('driver_assigned')
           setOtpInput('')
           setOtpError(false)
-          return {
+          const next: ActiveRide = {
             rideId,
-            origin: destination,                          // embarque da nova corrida
-            destination: destinationRide ?? destination,  // destino da nova corrida
+            origin: destination,
+            destination: destinationRide ?? destination,
           }
+          saveActiveRide({ rideId, status: 'driver_assigned', origin: next.origin, destination: next.destination })
+          return next
         }
         return prev
       })
@@ -183,7 +262,6 @@ export default function HomeScreen() {
       }
     })
 
-    // Backend sinaliza que motorista pode aceitar segunda corrida (< 3km do destino)
     socket.on('SECOND_RIDE_AVAILABLE', () => {
       setCanAcceptSecondRide(true)
     })
@@ -191,6 +269,7 @@ export default function HomeScreen() {
     return () => {
       socket.off('connect')
       socket.off('disconnect')
+      socket.off('RIDE_RESTORE')
       socket.off('RIDE_REQUEST')
       socket.off('RIDE_STATUS_UPDATE')
       socket.off('OTP_INVALID')
@@ -200,7 +279,6 @@ export default function HomeScreen() {
     }
   }, [hasQueuedRide])
 
-  // Ajusta mapa ao receber nova corrida
   useEffect(() => {
     if (!incomingRide || !driverLocation) return
     const coords: LatLng[] = [
@@ -242,16 +320,16 @@ export default function HomeScreen() {
     const isSecondRide = canAcceptSecondRide && !!activeRide
 
     if (isSecondRide) {
-      // Segunda corrida: apenas enfileira, mantém corrida atual
       setHasQueuedRide(true)
     } else {
-      // Primeira corrida: ativa imediatamente
-      setActiveRide({
+      const next: ActiveRide = {
         rideId: incomingRide.rideId,
         origin: incomingRide.origin,
         destination: incomingRide.destination,
-      })
+      }
+      setActiveRide(next)
       setRidePhase('driver_assigned')
+      saveActiveRide({ rideId: incomingRide.rideId, status: 'driver_assigned', origin: next.origin, destination: next.destination })
     }
 
     setIncomingRide(null)
@@ -290,7 +368,6 @@ export default function HomeScreen() {
     setRidePhase('payment_pending')
   }
 
-  // Polyline: rota real do ORS ou linha reta como fallback
   const polylineCoords = useMemo<LatLng[]>(() => {
     if (!activeRide) return []
     return routeCoords ?? [
@@ -315,7 +392,6 @@ export default function HomeScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Mapa */}
       <MapView
         ref={mapRef}
         style={StyleSheet.absoluteFillObject}
@@ -357,7 +433,6 @@ export default function HomeScreen() {
         )}
       </MapView>
 
-      {/* Loading overlay */}
       {!locationReady && (
         <View style={styles.loadingOverlay}>
           <ActivityIndicator size="large" color="#22c55e" />
@@ -365,7 +440,6 @@ export default function HomeScreen() {
         </View>
       )}
 
-      {/* Bottom sheet */}
       <View style={styles.bottomSheet}>
         <View style={styles.statusRow}>
           <View style={[styles.dot, { backgroundColor: connected ? '#22c55e' : '#ef4444' }]} />
@@ -397,7 +471,6 @@ export default function HomeScreen() {
           </View>
         )}
 
-        {/* Fase 1: aguardando passageiro — entrada de OTP */}
         {activeRide && ridePhase === 'driver_assigned' && (
           <View style={styles.otpContainer}>
             <Text style={styles.otpLabel}>Código de embarque</Text>
@@ -432,14 +505,12 @@ export default function HomeScreen() {
           </View>
         )}
 
-        {/* Fase 2: em andamento */}
         {activeRide && ridePhase === 'in_progress' && (
           <TouchableOpacity style={styles.paymentButton} onPress={handlePayment}>
             <Text style={styles.actionButtonText}>Finalizar Corrida</Text>
           </TouchableOpacity>
         )}
 
-        {/* Fase 3: processando pagamento */}
         {activeRide && (ridePhase === 'payment_pending' || ridePhase === 'paid') && (
           <View style={styles.processingCard}>
             <ActivityIndicator size="small" color="#8b5cf6" />
@@ -449,7 +520,6 @@ export default function HomeScreen() {
           </View>
         )}
 
-        {/* Botão online/offline (apenas quando sem corrida ativa) */}
         {!activeRide && (
           <TouchableOpacity
             style={[styles.onlineButton, isOnline ? styles.offlineButton : styles.goOnlineButton]}
@@ -463,7 +533,6 @@ export default function HomeScreen() {
         )}
       </View>
 
-      {/* Modal de nova corrida */}
       <Modal visible={incomingRide !== null} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalSheet}>
@@ -608,7 +677,6 @@ const styles = StyleSheet.create({
     color: '#aaa',
     fontSize: 13,
   },
-  // OTP
   otpContainer: {
     gap: 8,
   },
@@ -696,7 +764,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
   },
-  // Modal
   modalOverlay: {
     flex: 1,
     justifyContent: 'flex-end',
@@ -793,7 +860,6 @@ const styles = StyleSheet.create({
   },
 })
 
-// Dark map style
 const mapStyle = [
   { elementType: 'geometry', stylers: [{ color: '#0d1221' }] },
   { elementType: 'labels.text.fill', stylers: [{ color: '#7b92a5' }] },

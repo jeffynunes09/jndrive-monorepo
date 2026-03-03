@@ -9,10 +9,12 @@ export const notifyDriversQueue = new Queue('notify-drivers', { connection })
 export const processPaymentQueue = new Queue('process-payment', { connection })
 export const sendReceiptQueue = new Queue('send-receipt', { connection })
 export const processImageQueue = new Queue('process-image', { connection })
+export const rideExpiryQueue = new Queue('ride-expiry', { connection })
 
 export const Queues = {
   NOTIFY_DRIVERS: 'notify-drivers',
   PROCESS_PAYMENT: 'process-payment',
   SEND_RECEIPT: 'send-receipt',
   PROCESS_IMAGE: 'process-image',
+  RIDE_EXPIRY: 'ride-expiry',
 } as const

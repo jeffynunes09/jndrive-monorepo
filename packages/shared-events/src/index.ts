@@ -33,6 +33,10 @@ export const SocketEvents = {
   // Segunda corrida
   SECOND_RIDE_AVAILABLE: 'SECOND_RIDE_AVAILABLE', // backend → driver: pode aceitar segunda corrida
 
+  // Restore de corrida ativa ao reconectar
+  RIDE_RESTORE: 'RIDE_RESTORE',      // backend → client: corrida ativa ao conectar (IRide | null)
+  GET_RIDE_STATE: 'GET_RIDE_STATE',  // client → backend: solicita RIDE_RESTORE quando socket já estava conectado
+
   // User presence
   USER_ONLINE: 'USER_ONLINE',
 
