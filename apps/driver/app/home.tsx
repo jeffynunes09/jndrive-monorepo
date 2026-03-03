@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   View,
   Text,
+  TextInput,
   TouchableOpacity,
   StyleSheet,
   Modal,
@@ -25,8 +26,8 @@ interface IncomingRide {
 
 interface ActiveRide {
   rideId: string
-  origin: { lat: number; lng: number }
-  destination: { lat: number; lng: number }
+  origin: { lat: number; lng: number; address: string }
+  destination: { lat: number; lng: number; address: string }
 }
 
 type RidePhase = 'driver_assigned' | 'in_progress' | 'payment_pending' | 'paid' | 'completed' | 'cancelled' | null
@@ -44,6 +45,15 @@ export default function HomeScreen() {
   const [routeCoords, setRouteCoords] = useState<LatLng[] | null>(null)
   const [locationReady, setLocationReady] = useState(false)
 
+  // OTP
+  const [otpInput, setOtpInput] = useState('')
+  const [otpError, setOtpError] = useState(false)
+  const [otpLoading, setOtpLoading] = useState(false)
+
+  // Segunda corrida
+  const [canAcceptSecondRide, setCanAcceptSecondRide] = useState(false)
+  const [hasQueuedRide, setHasQueuedRide] = useState(false)
+
   const isOnlineRef = useRef(isOnline)
   isOnlineRef.current = isOnline
 
@@ -54,32 +64,32 @@ export default function HomeScreen() {
   useEffect(() => {
     let subscription: Location.LocationSubscription | null = null
 
-      ; (async () => {
-        const { status } = await Location.requestForegroundPermissionsAsync()
-        if (status !== 'granted') return
+    ;(async () => {
+      const { status } = await Location.requestForegroundPermissionsAsync()
+      if (status !== 'granted') return
 
-        subscription = await Location.watchPositionAsync(
-          {
-            accuracy: Location.Accuracy.High,
-            timeInterval: 3000,
-            distanceInterval: 10,
-          },
-          ({ coords }) => {
-            const loc = { lat: coords.latitude, lng: coords.longitude }
-            setDriverLocation(loc)
-            setLocationReady(true)
+      subscription = await Location.watchPositionAsync(
+        {
+          accuracy: Location.Accuracy.High,
+          timeInterval: 3000,
+          distanceInterval: 10,
+        },
+        ({ coords }) => {
+          const loc = { lat: coords.latitude, lng: coords.longitude }
+          setDriverLocation(loc)
+          setLocationReady(true)
 
-            if (isOnlineRef.current) {
-              const socket = getSocket()
-              socket.emit('DRIVER_LOCATION_UPDATE', {
-                driverId: driverIdRef.current,
-                lat: coords.latitude,
-                lng: coords.longitude,
-              })
-            }
+          if (isOnlineRef.current) {
+            const socket = getSocket()
+            socket.emit('DRIVER_LOCATION_UPDATE', {
+              driverId: driverIdRef.current,
+              lat: coords.latitude,
+              lng: coords.longitude,
+            })
           }
-        )
-      })()
+        }
+      )
+    })()
 
     return () => {
       subscription?.remove()
@@ -96,20 +106,86 @@ export default function HomeScreen() {
     socket.on('connect', () => setConnected(true))
     socket.on('disconnect', () => setConnected(false))
 
+    // Nova corrida disponível
     socket.on('RIDE_REQUEST', (ride: IncomingRide) => {
       setIncomingRide(ride)
-      if (ride.geometry && ride.geometry.length > 0) {
-        const coords: LatLng[] = ride.geometry.map(([lng, lat]) => ({ latitude: lat, longitude: lng }))
-        setRouteCoords(coords)
+    })
+
+    // Atualizações de status da corrida
+    socket.on('RIDE_STATUS_UPDATE', ({ status, rideId }: { rideId: string; status: RidePhase }) => {
+      setRidePhase(status)
+      if (status === 'completed' || status === 'cancelled') {
+        // Limpa o estado da corrida atual — segunda corrida (se houver) será ativada via RIDE_ROUTE_UPDATE
+        if (!hasQueuedRide) {
+          setActiveRide(null)
+          setRouteCoords(null)
+          setCanAcceptSecondRide(false)
+          setHasQueuedRide(false)
+        }
       }
     })
 
-    socket.on('RIDE_STATUS_UPDATE', ({ status }: { status: RidePhase }) => {
-      setRidePhase(status)
-      if (status === 'completed' || status === 'cancelled') {
-        setActiveRide(null)
-        setRouteCoords(null)
+    // Backend confirma OTP inválido
+    socket.on('OTP_INVALID', () => {
+      setOtpError(true)
+      setOtpLoading(false)
+    })
+
+    // Backend confirma OTP correto — corrida iniciada
+    socket.on('OTP_VERIFIED', () => {
+      setOtpInput('')
+      setOtpError(false)
+      setOtpLoading(false)
+      setRidePhase('in_progress')
+    })
+
+    // Nova rota de navegação (driver→embarque ou embarque→destino, ou segunda corrida)
+    socket.on('RIDE_ROUTE_UPDATE', ({
+      rideId,
+      phase,
+      destination,
+      destinationRide,
+      geometry,
+    }: {
+      rideId: string
+      phase: 'to_pickup' | 'to_destination'
+      origin: { lat: number; lng: number; address: string }
+      destination: { lat: number; lng: number; address: string }
+      destinationRide?: { lat: number; lng: number; address: string }
+      geometry: [number, number][] | null
+    }) => {
+      // Quando phase === 'to_pickup' de uma nova corrida (segunda corrida iniciando),
+      // o rideId difere da corrida atual — atualiza activeRide
+      setActiveRide(prev => {
+        if (!prev || prev.rideId !== rideId) {
+          // Nova corrida se tornando ativa (segunda corrida iniciou)
+          setCanAcceptSecondRide(false)
+          setHasQueuedRide(false)
+          setRidePhase('driver_assigned')
+          setOtpInput('')
+          setOtpError(false)
+          return {
+            rideId,
+            origin: destination,                          // embarque da nova corrida
+            destination: destinationRide ?? destination,  // destino da nova corrida
+          }
+        }
+        return prev
+      })
+
+      if (geometry && geometry.length > 0) {
+        const coords: LatLng[] = geometry.map(([lng, lat]) => ({ latitude: lat, longitude: lng }))
+        setRouteCoords(coords)
+        mapRef.current?.fitToCoordinates(coords, {
+          edgePadding: { top: 80, right: 60, bottom: 300, left: 60 },
+          animated: true,
+        })
       }
+    })
+
+    // Backend sinaliza que motorista pode aceitar segunda corrida (< 3km do destino)
+    socket.on('SECOND_RIDE_AVAILABLE', () => {
+      setCanAcceptSecondRide(true)
     })
 
     return () => {
@@ -117,10 +193,14 @@ export default function HomeScreen() {
       socket.off('disconnect')
       socket.off('RIDE_REQUEST')
       socket.off('RIDE_STATUS_UPDATE')
+      socket.off('OTP_INVALID')
+      socket.off('OTP_VERIFIED')
+      socket.off('RIDE_ROUTE_UPDATE')
+      socket.off('SECOND_RIDE_AVAILABLE')
     }
-  }, [])
+  }, [hasQueuedRide])
 
-  // Fit map when incoming ride arrives
+  // Ajusta mapa ao receber nova corrida
   useEffect(() => {
     if (!incomingRide || !driverLocation) return
     const coords: LatLng[] = [
@@ -158,13 +238,23 @@ export default function HomeScreen() {
       driverId,
       accepted: true,
     })
-    setActiveRide({
-      rideId: incomingRide.rideId,
-      origin: incomingRide.origin,
-      destination: incomingRide.destination,
-    })
+
+    const isSecondRide = canAcceptSecondRide && !!activeRide
+
+    if (isSecondRide) {
+      // Segunda corrida: apenas enfileira, mantém corrida atual
+      setHasQueuedRide(true)
+    } else {
+      // Primeira corrida: ativa imediatamente
+      setActiveRide({
+        rideId: incomingRide.rideId,
+        origin: incomingRide.origin,
+        destination: incomingRide.destination,
+      })
+      setRidePhase('driver_assigned')
+    }
+
     setIncomingRide(null)
-    setRidePhase('driver_assigned')
   }
 
   function handleReject() {
@@ -178,14 +268,16 @@ export default function HomeScreen() {
     setIncomingRide(null)
   }
 
-  function handleStartRide() {
-    if (!activeRide) return
+  function handleConfirmOtp() {
+    if (!activeRide || !otpInput.trim()) return
     const socket = getSocket()
-    socket.emit('RIDE_START', {
+    setOtpError(false)
+    setOtpLoading(true)
+    socket.emit('OTP_VALIDATE', {
       rideId: activeRide.rideId,
       driverId,
+      otp: otpInput.trim(),
     })
-    setRidePhase('in_progress')
   }
 
   function handlePayment() {
@@ -198,8 +290,7 @@ export default function HomeScreen() {
     setRidePhase('payment_pending')
   }
 
-  // Usa rota real do ORS se disponível, senão linha reta como fallback
-  // useMemo evita nova referência de array a cada render causado por GPS (3s)
+  // Polyline: rota real do ORS ou linha reta como fallback
   const polylineCoords = useMemo<LatLng[]>(() => {
     if (!activeRide) return []
     return routeCoords ?? [
@@ -210,21 +301,21 @@ export default function HomeScreen() {
 
   const initialRegion = driverLocation
     ? {
-      latitude: driverLocation.lat,
-      longitude: driverLocation.lng,
-      latitudeDelta: 0.01,
-      longitudeDelta: 0.01,
-    }
+        latitude: driverLocation.lat,
+        longitude: driverLocation.lng,
+        latitudeDelta: 0.01,
+        longitudeDelta: 0.01,
+      }
     : {
-      latitude: -23.55,
-      longitude: -46.63,
-      latitudeDelta: 0.05,
-      longitudeDelta: 0.05,
-    }
+        latitude: -23.55,
+        longitude: -46.63,
+        latitudeDelta: 0.05,
+        longitudeDelta: 0.05,
+      }
 
   return (
     <View style={styles.container}>
-      {/* Map */}
+      {/* Mapa */}
       <MapView
         ref={mapRef}
         style={StyleSheet.absoluteFillObject}
@@ -246,7 +337,7 @@ export default function HomeScreen() {
           <>
             <Marker
               coordinate={{ latitude: activeRide.origin.lat, longitude: activeRide.origin.lng }}
-              title="Origem"
+              title="Embarque"
               pinColor="#3b82f6"
             />
             <Marker
@@ -260,7 +351,7 @@ export default function HomeScreen() {
         {polylineCoords.length > 0 && (
           <Polyline
             coordinates={polylineCoords}
-            strokeColor="#22c55e"
+            strokeColor={ridePhase === 'in_progress' ? '#f59e0b' : '#22c55e'}
             strokeWidth={3}
           />
         )}
@@ -280,6 +371,16 @@ export default function HomeScreen() {
           <View style={[styles.dot, { backgroundColor: connected ? '#22c55e' : '#ef4444' }]} />
           <Text style={styles.statusText}>{connected ? 'Conectado' : 'Desconectado'}</Text>
           <View style={styles.spacer} />
+          {canAcceptSecondRide && !hasQueuedRide && (
+            <View style={styles.secondRideBadge}>
+              <Text style={styles.secondRideBadgeText}>2ª corrida disponível</Text>
+            </View>
+          )}
+          {hasQueuedRide && (
+            <View style={[styles.secondRideBadge, styles.secondRideQueuedBadge]}>
+              <Text style={styles.secondRideBadgeText}>2ª corrida enfileirada ✓</Text>
+            </View>
+          )}
           <View style={[styles.onlineBadge, { backgroundColor: isOnline ? '#14532d' : '#1a1a1a' }]}>
             <Text style={[styles.onlineBadgeText, { color: isOnline ? '#22c55e' : '#666' }]}>
               {isOnline ? 'Online' : 'Offline'}
@@ -291,24 +392,54 @@ export default function HomeScreen() {
           <View style={styles.activeRideCard}>
             <Text style={styles.activeRideTitle}>Corrida ativa</Text>
             <Text style={styles.activeRideText} numberOfLines={1}>
-              Para: {activeRide.destination.lat.toFixed(4)}, {activeRide.destination.lng.toFixed(4)}
+              Para: {activeRide.destination.address}
             </Text>
           </View>
         )}
 
-        {/* Ride flow action buttons */}
+        {/* Fase 1: aguardando passageiro — entrada de OTP */}
         {activeRide && ridePhase === 'driver_assigned' && (
-          <TouchableOpacity style={styles.startButton} onPress={handleStartRide}>
-            <Text style={styles.actionButtonText}>Iniciar Corrida</Text>
-          </TouchableOpacity>
+          <View style={styles.otpContainer}>
+            <Text style={styles.otpLabel}>Código de embarque</Text>
+            <Text style={styles.otpHint}>Solicite o código ao passageiro</Text>
+            <TextInput
+              style={[styles.otpInput, otpError && styles.otpInputError]}
+              placeholder="000000"
+              placeholderTextColor="#555"
+              value={otpInput}
+              onChangeText={text => {
+                setOtpInput(text.replace(/\D/g, '').slice(0, 6))
+                setOtpError(false)
+              }}
+              keyboardType="number-pad"
+              maxLength={6}
+              editable={!otpLoading}
+            />
+            {otpError && (
+              <Text style={styles.otpErrorText}>Código incorreto. Tente novamente.</Text>
+            )}
+            <TouchableOpacity
+              style={[styles.confirmOtpButton, (otpInput.length < 6 || otpLoading) && styles.confirmOtpButtonDisabled]}
+              onPress={handleConfirmOtp}
+              disabled={otpInput.length < 6 || otpLoading}
+            >
+              {otpLoading ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <Text style={styles.actionButtonText}>Confirmar Embarque</Text>
+              )}
+            </TouchableOpacity>
+          </View>
         )}
 
+        {/* Fase 2: em andamento */}
         {activeRide && ridePhase === 'in_progress' && (
           <TouchableOpacity style={styles.paymentButton} onPress={handlePayment}>
-            <Text style={styles.actionButtonText}>Emitir Pagamento</Text>
+            <Text style={styles.actionButtonText}>Finalizar Corrida</Text>
           </TouchableOpacity>
         )}
 
+        {/* Fase 3: processando pagamento */}
         {activeRide && (ridePhase === 'payment_pending' || ridePhase === 'paid') && (
           <View style={styles.processingCard}>
             <ActivityIndicator size="small" color="#8b5cf6" />
@@ -318,6 +449,7 @@ export default function HomeScreen() {
           </View>
         )}
 
+        {/* Botão online/offline (apenas quando sem corrida ativa) */}
         {!activeRide && (
           <TouchableOpacity
             style={[styles.onlineButton, isOnline ? styles.offlineButton : styles.goOnlineButton]}
@@ -331,15 +463,13 @@ export default function HomeScreen() {
         )}
       </View>
 
-      {/* Incoming ride modal */}
-      <Modal
-        visible={incomingRide !== null}
-        transparent
-        animationType="slide"
-      >
+      {/* Modal de nova corrida */}
+      <Modal visible={incomingRide !== null} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalSheet}>
-            <Text style={styles.modalTitle}>Nova corrida!</Text>
+            <Text style={styles.modalTitle}>
+              {canAcceptSecondRide && activeRide ? 'Segunda corrida!' : 'Nova corrida!'}
+            </Text>
 
             <View style={styles.modalInfoRow}>
               <Text style={styles.modalLabel}>Origem</Text>
@@ -350,22 +480,21 @@ export default function HomeScreen() {
               <Text style={styles.modalValue}>{incomingRide?.destination.address}</Text>
             </View>
 
-            {/* Detalhes da rota */}
             {(incomingRide?.distance || incomingRide?.duration || incomingRide?.fare) && (
               <View style={styles.routeChips}>
-                {incomingRide.distance != null && (
+                {incomingRide?.distance != null && (
                   <View style={styles.routeChip}>
                     <Text style={styles.routeChipLabel}>Distância</Text>
                     <Text style={styles.routeChipValue}>{incomingRide.distance.toFixed(1)} km</Text>
                   </View>
                 )}
-                {incomingRide.duration != null && (
+                {incomingRide?.duration != null && (
                   <View style={styles.routeChip}>
                     <Text style={styles.routeChipLabel}>Tempo</Text>
                     <Text style={styles.routeChipValue}>{incomingRide.duration} min</Text>
                   </View>
                 )}
-                {incomingRide.fare != null && (
+                {incomingRide?.fare != null && (
                   <View style={[styles.routeChip, styles.fareChip]}>
                     <Text style={styles.routeChipLabel}>Tarifa</Text>
                     <Text style={styles.fareChipValue}>
@@ -381,7 +510,9 @@ export default function HomeScreen() {
                 <Text style={styles.rejectButtonText}>Recusar</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.acceptButton} onPress={handleAccept}>
-                <Text style={styles.acceptButtonText}>Aceitar</Text>
+                <Text style={styles.acceptButtonText}>
+                  {canAcceptSecondRide && activeRide ? 'Enfileirar' : 'Aceitar'}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -433,8 +564,23 @@ const styles = StyleSheet.create({
     color: '#aaa',
     fontSize: 13,
   },
-  spacer: {
-    flex: 1,
+  spacer: { flex: 1 },
+  secondRideBadge: {
+    backgroundColor: '#1a2e1a',
+    borderWidth: 1,
+    borderColor: '#22c55e',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 20,
+  },
+  secondRideQueuedBadge: {
+    borderColor: '#f59e0b',
+    backgroundColor: '#1a1a00',
+  },
+  secondRideBadgeText: {
+    color: '#22c55e',
+    fontSize: 10,
+    fontWeight: '700',
   },
   onlineBadge: {
     paddingHorizontal: 12,
@@ -462,11 +608,48 @@ const styles = StyleSheet.create({
     color: '#aaa',
     fontSize: 13,
   },
-  startButton: {
+  // OTP
+  otpContainer: {
+    gap: 8,
+  },
+  otpLabel: {
+    color: '#e5e5e5',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  otpHint: {
+    color: '#666',
+    fontSize: 12,
+  },
+  otpInput: {
+    backgroundColor: '#1a1a1a',
+    borderWidth: 1,
+    borderColor: '#333',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    color: '#fff',
+    fontSize: 24,
+    fontWeight: '800',
+    letterSpacing: 8,
+    textAlign: 'center',
+  },
+  otpInputError: {
+    borderColor: '#ef4444',
+  },
+  otpErrorText: {
+    color: '#ef4444',
+    fontSize: 12,
+    textAlign: 'center',
+  },
+  confirmOtpButton: {
     backgroundColor: '#2563eb',
     borderRadius: 12,
     paddingVertical: 16,
     alignItems: 'center',
+  },
+  confirmOtpButtonDisabled: {
+    backgroundColor: '#0d1f3c',
   },
   paymentButton: {
     backgroundColor: '#7c3aed',
@@ -609,60 +792,38 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 })
-// Dark map style based on JnDrive design system tokens
-// --background #0d1221 | --card #141e32 | --muted #1b253b | --border #222d44
-// --primary #1adad0 | --muted-foreground #7b92a5 | --foreground #edf2f7
+
+// Dark map style
 const mapStyle = [
-  // Base geometry — background principal
   { elementType: 'geometry', stylers: [{ color: '#0d1221' }] },
-  // Labels gerais
   { elementType: 'labels.text.fill', stylers: [{ color: '#7b92a5' }] },
   { elementType: 'labels.text.stroke', stylers: [{ color: '#0d1221' }] },
-  // Ícones de labels
   { elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
-
-  // Landscape
   { featureType: 'landscape', elementType: 'geometry', stylers: [{ color: '#111929' }] },
   { featureType: 'landscape.man_made', elementType: 'geometry.stroke', stylers: [{ color: '#1b253b' }] },
   { featureType: 'landscape.natural', elementType: 'geometry', stylers: [{ color: '#0e1620' }] },
-
-  // Água — teal escuro, label teal
   { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#091e1d' }] },
   { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#1adad0' }] },
   { featureType: 'water', elementType: 'labels.text.stroke', stylers: [{ color: '#091e1d' }] },
-
-  // Parques / vegetação
   { featureType: 'poi.park', elementType: 'geometry.fill', stylers: [{ color: '#0d1f18' }] },
   { featureType: 'poi.park', elementType: 'labels.text.fill', stylers: [{ color: '#3a5a4a' }] },
-  // Outros POI — ocultos para mapa limpo
   { featureType: 'poi', elementType: 'geometry', stylers: [{ color: '#131c2e' }] },
   { featureType: 'poi', elementType: 'labels', stylers: [{ visibility: 'off' }] },
   { featureType: 'poi.business', stylers: [{ visibility: 'off' }] },
-
-  // Estradas — local
   { featureType: 'road.local', elementType: 'geometry.fill', stylers: [{ color: '#141e32' }] },
   { featureType: 'road.local', elementType: 'geometry.stroke', stylers: [{ color: '#1b253b' }] },
   { featureType: 'road.local', elementType: 'labels.text.fill', stylers: [{ color: '#546070' }] },
-
-  // Estradas — arterial
   { featureType: 'road.arterial', elementType: 'geometry.fill', stylers: [{ color: '#1b253b' }] },
   { featureType: 'road.arterial', elementType: 'geometry.stroke', stylers: [{ color: '#222d44' }] },
   { featureType: 'road.arterial', elementType: 'labels.text.fill', stylers: [{ color: '#7b92a5' }] },
-
-  // Estradas — rodovias
   { featureType: 'road.highway', elementType: 'geometry.fill', stylers: [{ color: '#222d44' }] },
   { featureType: 'road.highway', elementType: 'geometry.stroke', stylers: [{ color: '#2a3850' }] },
   { featureType: 'road.highway', elementType: 'labels.text.fill', stylers: [{ color: '#b8c8d8' }] },
   { featureType: 'road.highway', elementType: 'labels.text.stroke', stylers: [{ color: '#0d1221' }] },
-  // Remover ícone de rodovias
   { featureType: 'road.highway', elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
-
-  // Transporte
   { featureType: 'transit', elementType: 'geometry', stylers: [{ color: '#131c2e' }] },
   { featureType: 'transit.station', elementType: 'labels.text.fill', stylers: [{ color: '#4a6070' }] },
   { featureType: 'transit.line', elementType: 'geometry', stylers: [{ color: '#1b253b' }] },
-
-  // Divisões administrativas
   { featureType: 'administrative', elementType: 'geometry', stylers: [{ color: '#1b253b' }] },
   { featureType: 'administrative', elementType: 'geometry.stroke', stylers: [{ color: '#222d44' }] },
   { featureType: 'administrative.country', elementType: 'labels.text.fill', stylers: [{ color: '#9db8c8' }] },

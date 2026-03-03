@@ -23,6 +23,15 @@ export const SocketEvents = {
   RIDE_START: 'RIDE_START',
   RIDE_PAYMENT_REQUEST: 'RIDE_PAYMENT_REQUEST',
   CANCEL_RIDE: 'CANCEL_RIDE',
+  RIDE_ROUTE_UPDATE: 'RIDE_ROUTE_UPDATE',        // backend → driver: nova geometria de rota (driver→embarque ou embarque→destino)
+
+  // OTP — confirmação de embarque
+  OTP_VALIDATE: 'OTP_VALIDATE',                  // driver → backend: motorista envia código OTP
+  OTP_INVALID: 'OTP_INVALID',                    // backend → driver: OTP incorreto
+  OTP_VERIFIED: 'OTP_VERIFIED',                  // backend → driver: OTP correto, corrida iniciada
+
+  // Segunda corrida
+  SECOND_RIDE_AVAILABLE: 'SECOND_RIDE_AVAILABLE', // backend → driver: pode aceitar segunda corrida
 
   // User presence
   USER_ONLINE: 'USER_ONLINE',

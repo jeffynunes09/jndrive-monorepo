@@ -26,30 +26,32 @@ export interface UpdateRideDto {
 }
 
 export class RideService {
+  private generateOTP(): string {
+    return Math.floor(100000 + Math.random() * 900000).toString()
+  }
+
   async create(data: CreateRideDto): Promise<IRide> {
-    return Ride.create(data)
+    return Ride.create({ ...data, otp: this.generateOTP() })
   }
 
   async requestRide(data: CreateRideDto): Promise<{ ride: IRide; driverIds: string[] }> {
- //TODO: BLOQUEAR CRIAÇÃO EM CASO DE FALHA DE ROTA (EX: ORIGIN/DESTINO INACESSÍVEIS)
- console.log(`dados da corrida`, data)
+    console.log(`dados da corrida`, data)
     const route = await getRoute(data.origin, data.destination)
     console.log(`[RideService] Route fetched: distance=${route?.distance}m duration=${route?.duration}s`)
     const fare = route
       ? Math.round((AppConfig.BASE_FARE + route.distance * AppConfig.FARE_PER_KM + route.duration * AppConfig.FARE_PER_MIN) * 100) / 100
       : undefined
 
-    // 2. Criar corrida com dados de rota
     const ride = await Ride.create({
       ...data,
       status: 'searching_driver',
+      otp: this.generateOTP(),
       distance: route?.distance,
       duration: route?.duration,
       fare,
       geometry: route?.geometry,
     })
 
-    // 3. Buscar motoristas próximos
     const driverIds = await getNearbyDrivers(
       data.origin.lat,
       data.origin.lng,
@@ -76,7 +78,8 @@ export class RideService {
   }
 
   async findByRiderId(riderId: string): Promise<IRide[]> {
-    return Ride.find({ riderId }) .sort({ createdAt: -1 })}
+    return Ride.find({ riderId }).sort({ createdAt: -1 })
+  }
 
   async update(id: string, data: UpdateRideDto): Promise<IRide | null> {
     return Ride.findByIdAndUpdate(id, data, { new: true, runValidators: true })
@@ -86,11 +89,30 @@ export class RideService {
     return Ride.findByIdAndDelete(id)
   }
 
-  // Atomic accept — only succeeds if status is still 'searching_driver'
+  // Aceite atômico — apenas o primeiro motorista a responder vence
   async acceptRide(rideId: string, driverId: string): Promise<IRide | null> {
     return Ride.findOneAndUpdate(
       { _id: rideId, status: 'searching_driver' },
       { driverId, status: 'driver_assigned' },
+      { new: true }
+    )
+  }
+
+  // Registra rejeição — corrida não pode mais aparecer para este motorista
+  async rejectByDriver(rideId: string, driverId: string): Promise<void> {
+    await Ride.updateOne(
+      { _id: rideId },
+      { $addToSet: { rejectedByDriverIds: driverId } }
+    )
+  }
+
+  // Valida OTP e inicia a corrida atomicamente
+  async validateAndStartRide(rideId: string, driverId: string, otp: string): Promise<IRide | null> {
+    const ride = await Ride.findOne({ _id: rideId, driverId, status: 'driver_assigned' })
+    if (!ride || ride.otp !== otp) return null
+    return Ride.findOneAndUpdate(
+      { _id: rideId, driverId, status: 'driver_assigned' },
+      { status: 'in_progress', otpVerified: true, startedAt: new Date() },
       { new: true }
     )
   }

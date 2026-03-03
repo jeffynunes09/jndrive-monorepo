@@ -59,3 +59,13 @@ export async function getNearbyDrivers(
 
   return results as string[];
 }
+
+export async function getDriverLocation(
+  driverId: string
+): Promise<{ lat: number; lng: number } | null> {
+  const client = getRedisClient();
+  const results = await client.geopos(DRIVERS_GEO_KEY, driverId);
+  const pos = results?.[0];
+  if (!pos || pos[0] === null || pos[1] === null) return null;
+  return { lat: parseFloat(pos[1]), lng: parseFloat(pos[0]) };
+}

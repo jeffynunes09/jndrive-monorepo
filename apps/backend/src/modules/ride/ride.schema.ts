@@ -23,10 +23,13 @@ export interface IRide extends Document {
   origin: ICoordinate
   destination: ICoordinate
   status: RideStatus
+  otp: string                      // código gerado na criação, visível para o passageiro
+  otpVerified: boolean             // true após motorista confirmar embarque com OTP
+  rejectedByDriverIds: string[]    // motoristas que recusaram esta corrida (blacklist)
   fare?: number
   distance?: number
   duration?: number
-  geometry?: [number, number][]   // [lng, lat] pairs from ORS
+  geometry?: [number, number][]    // [lng, lat] pairs from ORS
   paymentConfirmed?: boolean
   scheduledAt?: Date
   startedAt?: Date
@@ -54,6 +57,9 @@ const RideSchema = new Schema<IRide>(
       enum: ['pending', 'searching_driver', 'driver_assigned', 'driver_en_route', 'in_progress', 'payment_pending', 'paid', 'completed', 'cancelled'],
       default: 'pending',
     },
+    otp: { type: String, required: true },
+    otpVerified: { type: Boolean, default: false },
+    rejectedByDriverIds: { type: [String], default: [] },
     fare: { type: Number },
     distance: { type: Number },
     duration: { type: Number },

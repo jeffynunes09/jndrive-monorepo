@@ -41,6 +41,7 @@ interface RideInfo {
   distance: number | null
   duration: number | null
   fare: number | null
+  otp: string | null
 }
 
 export default function HomeScreen() {
@@ -103,7 +104,7 @@ export default function HomeScreen() {
       fare: number | null
       geometry: [number, number][] | null
     }) => {
-      setRideInfo({ rideId, distance, duration, fare })
+      setRideInfo({ rideId, distance, duration, fare, otp: null })
       setRideStatus('searching_driver')
       setLoading(false)
 
@@ -117,9 +118,17 @@ export default function HomeScreen() {
       }
     })
 
-    socket.on('RIDE_STATUS_UPDATE', ({ status, driverId }: { rideId: string; status: RideStatus; driverId?: string }) => {
+    socket.on('RIDE_STATUS_UPDATE', ({ status, driverId, otp }: { rideId: string; status: RideStatus; driverId?: string; otp?: string }) => {
       setRideStatus(status)
       if (driverId) setDriverInfo(driverId)
+      // Salva OTP quando motorista aceita (visível ao passageiro para informar ao motorista)
+      if (otp) {
+        setRideInfo(prev => prev ? { ...prev, otp } : null)
+      }
+      // Esconde OTP quando corrida inicia ou termina
+      if (status === 'in_progress' || status === 'completed' || status === 'cancelled') {
+        setRideInfo(prev => prev ? { ...prev, otp: null } : null)
+      }
       if (status === 'completed' || status === 'cancelled' || status === 'paid') {
         setLoading(false)
       }
@@ -354,6 +363,15 @@ export default function HomeScreen() {
               </View>
             )}
 
+            {/* OTP — visível ao passageiro para informar ao motorista no embarque */}
+            {rideInfo?.otp && rideStatus === 'driver_assigned' && (
+              <View style={styles.otpCard}>
+                <Text style={styles.otpCardLabel}>Código de embarque</Text>
+                <Text style={styles.otpCardCode}>{rideInfo.otp}</Text>
+                <Text style={styles.otpCardHint}>Informe este código ao motorista</Text>
+              </View>
+            )}
+
             {driverInfo && (
               <View style={styles.driverCard}>
                 <Text style={styles.driverCardLabel}>Motorista</Text>
@@ -472,6 +490,19 @@ const styles = StyleSheet.create({
   routeInfoLabel: { color: '#6b7280', fontSize: 10, fontWeight: '600', textTransform: 'uppercase' },
   routeInfoValue: { color: '#e5e7eb', fontSize: 14, fontWeight: '700' },
   fareValue: { color: '#60a5fa', fontSize: 15, fontWeight: '800' },
+  // Cartão OTP
+  otpCard: {
+    backgroundColor: '#0d1f3c',
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#2563eb',
+    gap: 4,
+  },
+  otpCardLabel: { color: '#6b7280', fontSize: 11, fontWeight: '600', textTransform: 'uppercase' },
+  otpCardCode: { color: '#60a5fa', fontSize: 36, fontWeight: '800', letterSpacing: 10 },
+  otpCardHint: { color: '#4b5563', fontSize: 11 },
   driverCard: {
     backgroundColor: '#1f2937',
     borderRadius: 10,

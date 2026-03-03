@@ -1,17 +1,18 @@
 import { Socket } from 'socket.io'
 import { RideService } from '../../../modules/ride/ride.service'
 import { SocketEvents } from 'shared-events'
-import { getIO } from '../socket'
+import { getIO, DriverSocketManager } from '../socket'
 
 const rideService = new RideService()
 
 export function registerRideHandlers(socket: Socket): void {
   socket.on(SocketEvents.RIDE_CREATE, async (payload) => {
     try {
-       const validadeRequestRide = await rideService.findByRiderId(payload.riderId)
-       if (validadeRequestRide.length > 0) {
-         return { error: 'Rider already has an active ride' }
-       }
+      const validadeRequestRide = await rideService.findByRiderId(payload.riderId)
+      if (validadeRequestRide.length > 0) {
+        return { error: 'Rider already has an active ride' }
+      }
+
       const { ride, driverIds } = await rideService.requestRide(payload)
 
       // Rider entra na sua sala de notificações
@@ -19,9 +20,22 @@ export function registerRideHandlers(socket: Socket): void {
         socket.join(`user:${payload.riderId}`)
       }
 
-      // Notifica motoristas próximos com dados da rota
       const io = getIO()
+
+      // Notifica motoristas disponíveis:
+      // — sem corrida ativa: sempre notifica
+      // — com corrida ativa: só notifica se segunda corrida foi liberada (< 3km do destino)
+      // — exclui motoristas que já recusaram esta corrida
+      const notifiedDrivers: string[] = []
       for (const driverId of driverIds) {
+        if (ride.rejectedByDriverIds?.includes(driverId)) continue
+
+        const driverSocket = DriverSocketManager.get(driverId)
+        const hasActiveRide = !!driverSocket?.data.activeRideId
+        const canTakeSecond = !!driverSocket?.data.secondRideAvailableNotified
+
+        if (hasActiveRide && !canTakeSecond) continue
+
         io.to(`driver:${driverId}`).emit(SocketEvents.RIDE_REQUEST, {
           rideId: ride.id,
           riderId: ride.riderId,
@@ -32,6 +46,7 @@ export function registerRideHandlers(socket: Socket): void {
           duration: ride.duration,
           fare: ride.fare,
         })
+        notifiedDrivers.push(driverId)
       }
 
       // Confirma criação para o rider com rideId + dados de rota
@@ -43,7 +58,7 @@ export function registerRideHandlers(socket: Socket): void {
         geometry: ride.geometry ?? null,
       })
 
-      console.log(`[WS] Ride ${ride.id} — drivers found: [${driverIds.join(', ')}]`)
+      console.log(`[WS] Ride ${ride.id} — drivers notificados: [${notifiedDrivers.join(', ')}]`)
       return { data: ride }
 
     } catch (err: any) {
