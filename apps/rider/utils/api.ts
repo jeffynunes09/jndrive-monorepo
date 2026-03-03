@@ -61,3 +61,31 @@ export function getHistoryRides(params: { riderId?: string; driverId?: string })
   if (params.driverId) clean.driverId = params.driverId
   return get<RideDTO[]>('/api/rides', clean)
 }
+
+export interface GeocodeResult {
+  lat: number
+  lng: number
+  address: string
+}
+
+/** Converte endereço digitado em coordenadas */
+export async function geocodeAddress(address: string): Promise<GeocodeResult | null> {
+  try {
+    return await get<GeocodeResult>('/api/geocode/forward', { address })
+  } catch {
+    return null
+  }
+}
+
+/** Converte coordenadas GPS em endereço legível */
+export async function reverseGeocodeLocation(lat: number, lng: number): Promise<string | null> {
+  try {
+    const result = await get<{ address: string }>('/api/geocode/reverse', {
+      lat: String(lat),
+      lng: String(lng),
+    })
+    return result.address
+  } catch {
+    return null
+  }
+}

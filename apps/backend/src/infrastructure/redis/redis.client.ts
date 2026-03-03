@@ -1,18 +1,38 @@
 import { createClient, RedisClientType } from 'redis'
 
-let redisClient: RedisClientType
+
+let redisClient: RedisClientType;
 
 export async function getRedisClient(): Promise<RedisClientType> {
   if (!redisClient) {
-    redisClient = createClient({ url: process.env.REDIS_URL,socket:{
-    tls: true,
-    rejectUnauthorized: false
-  
-    } }) as RedisClientType
-    await redisClient.connect()
-    console.log('Redis connected')
+    redisClient = createClient({
+      url: process.env.REDIS_URL,
+      socket: {
+        tls: true,
+        rejectUnauthorized: false,
+        reconnectStrategy: (retries) => {
+          console.log(`Redis reconnect attempt: ${retries}`);
+          return Math.min(retries * 100, 3000);
+        }
+      }
+    });
+
+    redisClient.on("connect", () => {
+      console.log("✅ Redis connected");
+    });
+
+    redisClient.on("error", (err) => {
+      console.error("❌ Redis error:", err);
+    });
+
+    redisClient.on("reconnecting", () => {
+      console.log("♻️ Redis reconnecting...");
+    });
+
+    await redisClient.connect();
   }
-  return redisClient
+
+  return redisClient;
 }
 
 // Key patterns

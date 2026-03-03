@@ -12,6 +12,7 @@ import MapView, { Marker, Polyline, PROVIDER_GOOGLE, LatLng } from 'react-native
 import * as Location from 'expo-location'
 import { useLocalSearchParams } from 'expo-router'
 import { getSocket } from '../utils/socket'
+import { geocodeAddress, reverseGeocodeLocation } from '../utils/api'
 
 type RideStatus = 'searching_driver' | 'driver_assigned' | 'in_progress' | 'payment_pending' | 'paid' | 'completed' | 'cancelled'
 
@@ -57,12 +58,14 @@ export default function HomeScreen() {
   const [destCoord, setDestCoord] = useState<{ lat: number; lng: number } | null>(null)
   const [rideInfo, setRideInfo] = useState<RideInfo | null>(null)
   const [routeCoords, setRouteCoords] = useState<LatLng[] | null>(null)
+  const [originAddress, setOriginAddress] = useState<string | null>(null)
+  const [geocodeError, setGeocodeError] = useState<string | null>(null)
 
   const driverFitDone = useRef(false)
   const riderLocationRef = useRef(riderLocation)
   riderLocationRef.current = riderLocation
 
-  // GPS location
+  // GPS location + reverse geocode da origem em background
   useEffect(() => {
     ;(async () => {
       const { status } = await Location.requestForegroundPermissionsAsync()
@@ -70,6 +73,10 @@ export default function HomeScreen() {
       const { coords } = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High })
       setRiderLocation({ lat: coords.latitude, lng: coords.longitude })
       setLocationReady(true)
+
+      reverseGeocodeLocation(coords.latitude, coords.longitude)
+        .then(addr => { if (addr) setOriginAddress(addr) })
+        .catch(() => {})
     })()
   }, [])
 
@@ -140,14 +147,10 @@ export default function HomeScreen() {
     }
   }, [])
 
-  function requestRide() {
+  async function requestRide() {
     if (!riderLocation || !destination.trim()) return
 
-    const dest = {
-      lat: riderLocation.lat - 0.01,
-      lng: riderLocation.lng - 0.02,
-    }
-    setDestCoord(dest)
+    setGeocodeError(null)
     setRouteCoords(null)
     driverFitDone.current = false
     setLoading(true)
@@ -155,21 +158,29 @@ export default function HomeScreen() {
     setDriverInfo(null)
     setRideInfo(null)
 
+    const geocoded = await geocodeAddress(destination.trim())
+    if (!geocoded) {
+      setGeocodeError('Endereço não encontrado. Tente ser mais específico.')
+      setLoading(false)
+      return
+    }
+
+    setDestCoord({ lat: geocoded.lat, lng: geocoded.lng })
+
     const socket = getSocket()
     socket.emit('ride:create', {
       riderId: userId,
       origin: {
         lat: riderLocation.lat,
         lng: riderLocation.lng,
-        address: 'Localização atual',
+        address: originAddress ?? 'Localização atual',
       },
       destination: {
-        lat: dest.lat,
-        lng: dest.lng,
-        address: destination.trim(),
+        lat: geocoded.lat,
+        lng: geocoded.lng,
+        address: geocoded.address,
       },
     })
-    // A resposta chega via evento RIDE_CREATED (emitido pelo servidor)
   }
 
   function resetRide() {
@@ -181,6 +192,7 @@ export default function HomeScreen() {
     setRouteCoords(null)
     setDestination('')
     setLoading(false)
+    setGeocodeError(null)
     driverFitDone.current = false
   }
 
@@ -296,6 +308,9 @@ export default function HomeScreen() {
                 <Text style={styles.requestButtonText}>Pedir Corrida</Text>
               )}
             </TouchableOpacity>
+            {geocodeError && (
+              <Text style={styles.geocodeErrorText}>{geocodeError}</Text>
+            )}
           </>
         )}
 
@@ -424,6 +439,7 @@ const styles = StyleSheet.create({
   },
   requestButtonDisabled: { backgroundColor: '#0d1f3c' },
   requestButtonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  geocodeErrorText: { color: '#ef4444', fontSize: 13, textAlign: 'center' },
   rideActiveContainer: { gap: 10 },
   statusBadge: {
     borderRadius: 10,
