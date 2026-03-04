@@ -15,7 +15,15 @@
       "Bash(node -e \"\nconst { MongoClient } = require\\('/mnt/c/Users/User/Desktop/trudrive-monorepo/apps/backend/node_modules/mongodb'\\);\nconst client = new MongoClient\\('mongodb://root:root@localhost:27017/trudrive?authSource=admin'\\);\nclient.connect\\(\\).then\\(async \\(\\) => {\n  const result = await client.db\\('trudrive'\\).collection\\('rides'\\).deleteMany\\({ status: 'searching_driver' }\\);\n  console.log\\('Deletadas:', result.deletedCount, 'corridas com status searching_driver'\\);\n  await client.close\\(\\);\n}\\).catch\\(e => console.error\\('Erro:', e.message\\)\\);\n\")",
       "Bash(find /mnt/c/Users/User/Desktop/trudrive-monorepo -name \"mongodb\" -type d -path \"*/node_modules/mongodb\" 2>/dev/null | head -3)",
       "Bash(node -e \"\nconst { MongoClient } = require\\('/mnt/c/Users/User/Desktop/trudrive-monorepo/node_modules/.pnpm/mongodb@6.20.0/node_modules/mongodb'\\);\nconst client = new MongoClient\\('mongodb://root:root@localhost:27017/trudrive?authSource=admin'\\);\nclient.connect\\(\\).then\\(async \\(\\) => {\n  const result = await client.db\\('trudrive'\\).collection\\('rides'\\).deleteMany\\({ status: 'searching_driver' }\\);\n  console.log\\('Deletadas:', result.deletedCount, 'corridas com status searching_driver'\\);\n  await client.close\\(\\);\n}\\).catch\\(e => console.error\\('Erro:', e.message\\)\\);\n\")",
-      "Bash(CI=true pnpm install --filter driver --filter rider 2>&1 | tail -15)"
+      "Bash(CI=true pnpm install --filter driver --filter rider 2>&1 | tail -15)",
+      "Bash(find /mnt/c/Users/User/Desktop/trudrive-monorepo/apps/admin -type f -name \"tsconfig*.json\" -o -name \"index.html\" 2>/dev/null | head -20)",
+      "Bash(CI=true pnpm install --filter admin 2>&1 | tail -30)",
+      "Bash(cd /mnt/c/Users/User/Desktop/trudrive-monorepo/apps/admin && npx tsc --noEmit -p tsconfig.app.json 2>&1)",
+      "Bash(grep -r \"TODO\\\\|FIXME\" /mnt/c/Users/User/Desktop/trudrive-monorepo/apps --include=\"*.ts\" --include=\"*.tsx\" 2>/dev/null | head -20)",
+      "Bash(find /mnt/c/Users/User/Desktop/trudrive-monorepo/apps -maxdepth 2 -type f -name \"package.json\" | xargs -I {} sh -c 'echo \"=== {} ===\"; head -20 {}' 2>/dev/null | head -100)",
+      "Bash(grep -r \"GOOGLE_API_KEY\\\\|ONESIGNAL\\\\|MERCADO_PAGO\" /mnt/c/Users/User/Desktop/trudrive-monorepo/apps/driver --include=\"*.ts\" --include=\"*.tsx\" 2>/dev/null | head -10)",
+      "Bash(ls /mnt/c/Users/User/Desktop/trudrive-monorepo/apps/admin/*.example 2>/dev/null || echo \"none\")",
+      "Bash(npx tsc --noEmit -p tsconfig.app.json 2>&1)"
     ]
   }
 }
