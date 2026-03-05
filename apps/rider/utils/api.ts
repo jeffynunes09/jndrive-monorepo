@@ -29,6 +29,7 @@ export interface UserProfile {
   profileImage?: string
   isApproved: boolean
   isActive: boolean
+  pushToken?: string
 }
 
 async function post<T>(path: string, body: object): Promise<T> {

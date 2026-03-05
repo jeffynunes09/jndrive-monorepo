@@ -36,6 +36,7 @@ export interface UserProfile {
   vehicleColor?: string
   driverLicenseImage?: string
   vehicleDocImage?: string
+  pushToken?: string
 }
 
 async function post<T>(path: string, body: object): Promise<T> {

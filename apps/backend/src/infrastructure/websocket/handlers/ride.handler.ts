@@ -4,6 +4,7 @@ import { SocketEvents } from 'shared-events'
 import { getIO, DriverSocketManager } from '../socket'
 import { rideExpiryQueue } from '../../queue/queue'
 import { UserService } from '../../../modules/user/user.service'
+import { sendPushNotification } from '../../../modules/notification/notification.service'
 
 
 const rideService = new RideService()
@@ -60,6 +61,18 @@ export function registerRideHandlers(socket: Socket): void {
           fare: ride.fare,
         })
         notifiedDrivers.push(driverId)
+      }
+
+      // Push para motoristas que podem estar com o app em background
+      if (notifiedDrivers.length > 0) {
+        const driverUsers = await Promise.all(notifiedDrivers.map(id => userService.findById(id)))
+        const tokens = driverUsers.flatMap(u => u?.pushToken ? [u.pushToken] : [])
+        await sendPushNotification({
+          pushTokens: tokens,
+          title: 'Nova corrida disponível',
+          body: `R$ ${ride.fare?.toFixed(2) ?? '—'} · ${ride.distance?.toFixed(1) ?? '—'} km`,
+          data: { rideId: ride.id, type: 'ride_request' },
+        })
       }
 
       // Confirma criação para o rider com rideId + dados de rota
@@ -148,18 +161,54 @@ export function registerRideHandlers(socket: Socket): void {
         status: 'cancelled',
       })
 
-      // Se já tinha motorista, notifica ele também
+      // Se já tinha motorista, notifica ele também e limpa estado no socket
       if (ride.driverId) {
-        io.to(`driver:${ride.driverId}`).emit(SocketEvents.RIDE_STATUS_UPDATE, {
-          rideId,
-          status: 'cancelled',
-        })
-
-        // Limpa corrida ativa do driver
         const driverSocket = DriverSocketManager.get(ride.driverId)
         if (driverSocket) {
-          driverSocket.data.activeRideId = undefined
-          driverSocket.data.activeRideRiderId = undefined
+          // Corrida cancelada é a corrida ativa do driver
+          if (driverSocket.data.activeRideId === rideId) {
+            driverSocket.data.activeRideId = undefined
+            driverSocket.data.activeRideRiderId = undefined
+            io.to(`driver:${ride.driverId}`).emit(SocketEvents.RIDE_STATUS_UPDATE, {
+              rideId,
+              status: 'cancelled',
+            })
+          }
+          // Corrida cancelada é a corrida enfileirada do driver
+          if (driverSocket.data.queuedRideId === rideId) {
+            driverSocket.data.queuedRideId = undefined
+            driverSocket.data.queuedRideRiderId = undefined
+            driverSocket.emit(SocketEvents.RIDE_STATUS_UPDATE, { rideId, status: 'cancelled' })
+          }
+        } else {
+          // Driver desconectado — notifica pela sala mesmo assim
+          io.to(`driver:${ride.driverId}`).emit(SocketEvents.RIDE_STATUS_UPDATE, {
+            rideId,
+            status: 'cancelled',
+          })
+        }
+      }
+
+      // Push para a parte afetada pelo cancelamento
+      if (cancelledBy === 'rider' && ride.driverId) {
+        const driverUser = await userService.findById(ride.driverId)
+        if (driverUser?.pushToken) {
+          await sendPushNotification({
+            pushTokens: [driverUser.pushToken],
+            title: 'Corrida cancelada',
+            body: 'O passageiro cancelou a corrida',
+            data: { rideId, type: 'cancelled' },
+          })
+        }
+      } else if (cancelledBy === 'driver') {
+        const riderUser = await userService.findById(ride.riderId)
+        if (riderUser?.pushToken) {
+          await sendPushNotification({
+            pushTokens: [riderUser.pushToken],
+            title: 'Corrida cancelada',
+            body: 'O motorista cancelou a corrida',
+            data: { rideId, type: 'cancelled' },
+          })
         }
       }
 

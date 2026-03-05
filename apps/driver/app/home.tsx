@@ -85,6 +85,7 @@ export default function HomeScreen() {
   const [riderDetails, setRiderDetails] = useState<RiderDetails | null>(null)
   const [canAcceptSecondRide, setCanAcceptSecondRide] = useState(false)
   const [hasQueuedRide, setHasQueuedRide] = useState(false)
+  const [queuedRideId, setQueuedRideId] = useState<string | null>(null)
 
   const isOnlineRef = useRef(isOnline)
   isOnlineRef.current = isOnline
@@ -98,6 +99,13 @@ export default function HomeScreen() {
   // Ref para acessar ridePhase dentro de callbacks sem stale closure
   const ridePhaseRef = useRef(ridePhase)
   ridePhaseRef.current = ridePhase
+
+  // Ref para acessar hasQueuedRide dentro de callbacks sem stale closure
+  const hasQueuedRideRef = useRef(hasQueuedRide)
+  hasQueuedRideRef.current = hasQueuedRide
+
+  const queuedRideIdRef = useRef(queuedRideId)
+  queuedRideIdRef.current = queuedRideId
 
   // Atualiza o primeiro ponto da polyline com a posição atual do motorista
   // durante corrida ativa, criando o efeito visual de rota "sendo consumida"
@@ -213,15 +221,23 @@ export default function HomeScreen() {
     })
 
     socket.on('RIDE_STATUS_UPDATE', ({ status, rideId }: { rideId: string; status: RidePhase }) => {
+      // Cancelamento da corrida enfileirada (rider 2 cancelou enquanto aguardava)
+      if (status === 'cancelled' && rideId === queuedRideIdRef.current) {
+        setHasQueuedRide(false)
+        setQueuedRideId(null)
+        return
+      }
+
       setRidePhase(status)
       if (status === 'completed' || status === 'cancelled') {
         clearActiveRide()
         setRiderDetails(null)
-        if (!hasQueuedRide) {
+        if (!hasQueuedRideRef.current) {
           setActiveRide(null)
           setRouteCoords(null)
           setCanAcceptSecondRide(false)
           setHasQueuedRide(false)
+          setQueuedRideId(null)
         }
       } else {
         const current = activeRideRef.current
@@ -269,6 +285,7 @@ export default function HomeScreen() {
         if (!prev || prev.rideId !== rideId) {
           setCanAcceptSecondRide(false)
           setHasQueuedRide(false)
+          setQueuedRideId(null)
           setRidePhase('driver_assigned')
           setOtpInput('')
           setOtpError(false)
@@ -308,7 +325,7 @@ export default function HomeScreen() {
       socket.off('RIDE_ROUTE_UPDATE')
       socket.off('SECOND_RIDE_AVAILABLE')
     }
-  }, [hasQueuedRide])
+  }, [])
 
   useEffect(() => {
     if (!incomingRide || !driverLocation) return
@@ -352,6 +369,7 @@ export default function HomeScreen() {
 
     if (isSecondRide) {
       setHasQueuedRide(true)
+      setQueuedRideId(incomingRide.rideId)
     } else {
       const next: ActiveRide = {
         rideId: incomingRide.rideId,

@@ -22,7 +22,7 @@ Ride-sharing platform — Modular Monolith with event-driven architecture.
 | Real-time | Socket.io with Redis Adapter |
 | Mobile | React Native |
 | Web Admin | React + Chakra UI |
-| Notifications | OneSignal |
+| Notifications | Expo Push Notifications |
 | Payment | Mercado Pago |
 
 ## Monorepo Structure
@@ -49,7 +49,7 @@ backend/src/
     user/           — Auth (OTP), profiles, JWT
     ride/           — Ride creation, matching, status
     payment/        — Fare calculation, payment processing
-    notification/   — Push notifications (OneSignal)
+    notification/   — Push notifications (Expo Push)
     upload/         — AWS S3 pre-signed URL generation
   infrastructure/
     database/       — MongoDB connection (Mongoose)

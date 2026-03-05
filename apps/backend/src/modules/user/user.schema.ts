@@ -17,6 +17,7 @@ export interface IUser extends Document {
   vehicleColor?: string
   driverLicenseImage?: string  // S3 key
   vehicleDocImage?: string     // S3 key
+  pushToken?: string
   createdAt: Date
   updatedAt: Date
 }
@@ -38,6 +39,7 @@ const UserSchema = new Schema<IUser>(
     vehicleColor: { type: String },
     driverLicenseImage: { type: String },
     vehicleDocImage: { type: String },
+    pushToken: { type: String },
   },
   { timestamps: true }
 )

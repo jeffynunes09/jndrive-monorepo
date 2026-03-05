@@ -99,6 +99,7 @@ export default function HomeScreen() {
   const [routeCoords, setRouteCoords] = useState<LatLng[] | null>(null)
   const [originAddress, setOriginAddress] = useState<string | null>(null)
   const [geocodeError, setGeocodeError] = useState<string | null>(null)
+  const [isQueuedRide, setIsQueuedRide] = useState(false)
 
   const driverFitDone = useRef(false)
   const riderLocationRef = useRef(riderLocation)
@@ -291,10 +292,14 @@ export default function HomeScreen() {
       }
     })
 
-    socket.on('RIDE_STATUS_UPDATE', ({ status, driverId, otp, driverInfo: di }: { rideId: string; status: RideStatus; driverId?: string; otp?: string; driverInfo?: DriverDetails }) => {
+    socket.on('RIDE_STATUS_UPDATE', ({ status, driverId, otp, driverInfo: di, queued }: { rideId: string; status: RideStatus; driverId?: string; otp?: string; driverInfo?: DriverDetails; queued?: boolean }) => {
       setRideStatus(status)
       if (driverId) setDriverInfo(driverId)
       if (di) setDriverDetails(di)
+      if (queued) setIsQueuedRide(true)
+      if (status === 'in_progress' || status === 'completed' || status === 'cancelled') {
+        setIsQueuedRide(false)
+      }
       if (otp) {
         setRideInfo(prev => prev ? { ...prev, otp } : null)
       }
@@ -329,12 +334,15 @@ export default function HomeScreen() {
     // Recebe a rota calculada pelo backend (driver→embarque ou embarque→destino)
     // e atualiza o mapa para mostrar o caminho correto por fase
     socket.on('RIDE_ROUTE_UPDATE', ({
+      phase,
       geometry,
     }: {
       rideId: string
       phase: 'to_pickup' | 'to_destination'
       geometry: [number, number][] | null
     }) => {
+      // Motorista agora efetivamente a caminho — limpa o estado de corrida enfileirada
+      if (phase === 'to_pickup') setIsQueuedRide(false)
       if (!geometry || geometry.length === 0) return
       const coords: LatLng[] = geometry.map(([lng, lat]) => ({ latitude: lat, longitude: lng }))
       routeCoordsRef.current = coords
@@ -439,6 +447,7 @@ export default function HomeScreen() {
     setDestination('')
     setLoading(false)
     setGeocodeError(null)
+    setIsQueuedRide(false)
     driverFitDone.current = false
     setOrigin(originAddress ?? '')
   }
@@ -589,7 +598,9 @@ export default function HomeScreen() {
               ]}
             >
               <Text style={[styles.statusBadgeText, { color: STATUS_COLORS[rideStatus!] }]}>
-                {STATUS_LABELS[rideStatus!]}
+                {isQueuedRide && rideStatus === 'driver_assigned'
+                  ? 'Motorista designado — finalizando outra corrida'
+                  : STATUS_LABELS[rideStatus!]}
               </Text>
             </View>
 

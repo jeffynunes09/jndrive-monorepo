@@ -11,14 +11,8 @@ O projeto possui uma base sólida com o fluxo principal de corrida **funcionando
 
 ---
 
-## 🔴 CRÍTICO — App crasha / funcionalidade quebrada
-
-### [C1] ~~Funções de geocodificação indefinidas~~ — RESOLVIDO ✅
-`geocodeAddress()` e `reverseGeocodeLocation()` estão definidas em `apps/rider/utils/api.ts` (linhas 139-161). Backend possui `GeocodeController` completo usando Nominatim (OpenStreetMap, gratuito, sem API key). Driver app não usa geocoding. **Sem pendência.**
-
----
-
-### [C2] Tabs de Histórico e Carteira causam crash
+Verificar (
+  ### [C2] Tabs de Histórico e Carteira causam crash
 **Arquivos:**
 - `apps/driver/app/(tabs)/history.tsx` — conteúdo ausente/vazio
 - `apps/driver/app/(tabs)/wallet.tsx` — conteúdo ausente/vazio
@@ -29,9 +23,10 @@ O projeto possui uma base sólida com o fluxo principal de corrida **funcionando
 - `history.tsx`: listar corridas passadas com status, valor, data e endereços (chamada REST `GET /api/rides?userId=me`)
 - `wallet.tsx`: exibir saldo acumulado do motorista + extrato de corridas pagas (MVP pode ser somente leitura)
 
----
+)
 
-### [C3] Pagamento é simulado (fake delay de 1 segundo)
+SERÁ FEITO DEPOIS (MANTER)(
+  ### [C3] Pagamento é simulado (fake delay de 1 segundo)
 **Arquivo:** `apps/backend/src/workers/payment.worker.ts` (linha 17)
 **Problema:** `// TODO: integrate payment provider` — o pagamento avança automaticamente sem cobrança real.
 **Solução:** Integrar Mercado Pago (credenciais já esperadas em `.env`):
@@ -40,20 +35,13 @@ O projeto possui uma base sólida com o fluxo principal de corrida **funcionando
 3. Retornar link de pagamento ao rider via socket `RIDE_PAYMENT_REQUEST`
 4. Confirmar corrida só após webhook de sucesso
 
----
-
-### [C4] Chave do Google Maps é placeholder
-**Arquivos:** `apps/driver/app.json`, `apps/rider/app.json`
-**Problema:** `GOOGLE_API_KEY: 'YOUR_API_KEY'` — mapas não renderizam no Android.
-**Solução:** Substituir pelo valor real via `EXPO_PUBLIC_GOOGLE_API_KEY` no `.env` e referenciar no `app.config.js`.
-
----
+)
 
 ## 🟠 ALTO — Segurança e funcionalidade core
 
 ### [A1] Rotas de admin completamente desprotegidas
 **Arquivo:** `apps/backend/src/modules/user/user.routes.ts`, `apps/backend/src/modules/ride/ride.module.ts`
-**Problema:** Qualquer pessoa autenticada pode aprovar motoristas, cancelar corridas, desativar usuários. Não há verificação de `role === 'admin'`.
+**Problema:** Qualquer pessoa autenticada pode aprovar motoristas, desativar usuários. Não há verificação de `role === 'admin'`.
 **Solução:** Criar middleware `requireAdmin` e aplicar nas rotas sensíveis:
 ```typescript
 // middleware/requireAdmin.ts
@@ -61,16 +49,13 @@ if (req.user.role !== 'admin') return reply.code(403).send({ error: 'Forbidden' 
 ```
 Aplicar em: `PATCH /users/:id/approve`, `DELETE /users/:id`, `PATCH /users/:id/deactivate`, `DELETE /rides/:id`.
 
----
 
-### [A2] Push notifications implementadas mas nunca chamadas
+### ~~[A2] Push notifications nunca chamadas~~ — RESOLVIDO ✅
 **Arquivo:** `apps/backend/src/modules/notification/notification.service.ts`
-**Problema:** `NotificationService` existe com integração OneSignal scaffolded, mas `sendPushNotification()` nunca é invocada em nenhum handler.
-**Solução:** Chamar nas transições de estado críticas:
-- Driver recebe `RIDE_REQUEST` → notificar se app em background
-- Rider: corrida aceita, motorista chegou, pagamento confirmado
-- Driver: aprovado pelo admin → notificar que pode trabalhar
-- Coletar `playerId` do OneSignal no login/registro dos apps e salvar em `user.pushToken`
+**Solução implementada:** Migrado de OneSignal para **Expo Push Notifications** (sem dependência externa).
+- `sendPushNotification()` chamada em: `RIDE_REQUEST` (drivers), `driver_assigned` (rider), `paid`, `completed`, `cancelled`
+- `user.pushToken` adicionado ao schema — salvo via `PATCH /api/users/me`
+- Apps coletam o token via `expo-notifications` no mount de `(tabs)/_layout.tsx`
 
 ---
 
@@ -93,10 +78,9 @@ Aplicar em: `PATCH /users/:id/approve`, `DELETE /users/:id`, `PATCH /users/:id/d
 **Problema:** Admin aprova motorista no painel, mas o driver app continua mostrando "aguardando aprovação" até o usuário fechar e reabrir o app manualmente.
 **Solução:** Após `isApproved = true` no banco:
 1. Emitir evento WebSocket `driver:approved` para o socket do driver (se online)
-2. Enviar push notification via OneSignal
+2. Enviar push notification via Expo Push
 3. Driver app: ouvir `driver:approved` e atualizar estado local
 
----
 
 ### [A5] Flag de segunda corrida perdida se app reiniciar
 **Arquivo:** `apps/backend/src/infrastructure/websocket/handlers/driver.handler.ts`
@@ -227,9 +211,8 @@ mongodb:
 | ~~C1~~ | ~~Geocodificação indefinida~~ ✅ RESOLVIDO   | -           | -       |
 | C2  | Tabs Histórico/Carteira vazias (crasha)        | 🔴 Crítico  | Médio   |
 | C3  | Pagamento fake — integrar Mercado Pago         | 🔴 Crítico  | Alto    |
-| C4  | Chave Google Maps placeholder                  | 🔴 Crítico  | Baixo   |
 | A1  | Rotas admin desprotegidas                      | 🟠 Alto     | Baixo   |
-| A2  | Push notifications nunca disparadas            | 🟠 Alto     | Médio   |
+| ~~A2~~ | ~~Push notifications nunca disparadas~~ ✅ RESOLVIDO | -    | -       |
 | A3  | Sem validação de entrada                       | 🟠 Alto     | Médio   |
 | A4  | Driver não notificado quando aprovado          | 🟠 Alto     | Baixo   |
 | A5  | Flag segunda corrida perdida no restart        | 🟠 Alto     | Baixo   |
@@ -248,46 +231,3 @@ mongodb:
 | L5  | Cobertura de testes backend                    | 🟢 Baixo    | Alto    |
 | L6  | URLs S3 privadas (signed)                      | 🟢 Baixo    | Baixo   |
 | L7  | Logs estruturados                              | 🟢 Baixo    | Baixo   |
-
----
-
-## Checklist MVP Mínimo (para lançar)
-
-Para considerar o projeto "lançável" como MVP funcional, os seguintes itens devem estar 100%:
-
-- [x] **[C1]** Geocodificação funcionando — ✅ já implementado com Nominatim
-- [x] **[C2]** Tabs Histórico e Carteira implementadas (sem crash)
-- [ ] **[C3]** Pagamento real integrado (Mercado Pago ou equivalente)
-- [ ] **[C4]** Google Maps API key configurada
-- [ ] **[A1]** Middleware de admin protegendo rotas sensíveis
-- [ ] **[A2]** Push notification na chegada de corrida (driver) e aceitação (rider)
-- [ ] **[A4]** Driver notificado ao ser aprovado
-- [ ] **[M6]** JWT sem fallback inseguro
-- [ ] **[M7]** docker-compose com MongoDB para ambiente de dev
-- [ ] **[M8]** Typo da env var ORS corrigido
-
-Os itens L1–L7 e M1–M5 podem ser feitos em iterações pós-lançamento.
-
----
-
-## Variáveis de Ambiente Obrigatórias (ainda não configuradas)
-
-```env
-# Backend
-MONGODB_URI=                    # obrigatório
-REDIS_URL=                      # obrigatório
-JWT_SECRET=                     # obrigatório (sem fallback)
-GOOGLE_API_KEY=                 # obrigatório (geocoding)
-ORS_API_KEY=                    # obrigatório (cálculo de rotas)
-ORS_BASE_URL=                   # obrigatório (renomear de OPENAI_ROUTES_SERVICE)
-AWS_ACCESS_KEY_ID=              # obrigatório (uploads S3)
-AWS_SECRET_ACCESS_KEY=          # obrigatório
-AWS_S3_BUCKET=                  # obrigatório
-MERCADO_PAGO_ACCESS_TOKEN=      # obrigatório (pagamento)
-ONESIGNAL_APP_ID=               # obrigatório (push notifications)
-ONESIGNAL_API_KEY=              # obrigatório
-
-# Apps Expo (driver + rider)
-EXPO_PUBLIC_API_URL=            # URL do backend (não hardcoded)
-EXPO_PUBLIC_GOOGLE_API_KEY=     # chave Google Maps para Android
-```

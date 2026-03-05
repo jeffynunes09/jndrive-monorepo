@@ -23,7 +23,16 @@
       "Bash(find /mnt/c/Users/User/Desktop/trudrive-monorepo/apps -maxdepth 2 -type f -name \"package.json\" | xargs -I {} sh -c 'echo \"=== {} ===\"; head -20 {}' 2>/dev/null | head -100)",
       "Bash(grep -r \"GOOGLE_API_KEY\\\\|ONESIGNAL\\\\|MERCADO_PAGO\" /mnt/c/Users/User/Desktop/trudrive-monorepo/apps/driver --include=\"*.ts\" --include=\"*.tsx\" 2>/dev/null | head -10)",
       "Bash(ls /mnt/c/Users/User/Desktop/trudrive-monorepo/apps/admin/*.example 2>/dev/null || echo \"none\")",
-      "Bash(npx tsc --noEmit -p tsconfig.app.json 2>&1)"
+      "Bash(npx tsc --noEmit -p tsconfig.app.json 2>&1)",
+      "Bash(git add .gitignore && git status apps/driver/package-lock.json apps/rider/package-lock.json 2>&1)",
+      "Bash(git add .gitignore apps/driver/package-lock.json apps/rider/package-lock.json 2>&1 && git status --short)",
+      "Bash(git commit -m \"$\\(cat <<'EOF'\nfix: add package-lock.json to .gitignore to prevent npm breaking pnpm workspaces\n\nCo-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git push origin main)",
+      "Bash(grep -r \"OneSignal\\\\|one-signal\\\\|onesignal\" /mnt/c/Users/User/Desktop/trudrive-monorepo --include=\"*.ts\" --include=\"*.tsx\" --include=\"*.js\" --include=\"*.json\" 2>/dev/null | grep -v node_modules | grep -v dist)",
+      "Bash(wait bsdz9fs1x)",
+      "Bash(grep -r \"pushToken\\\\|playerId\\\\|expo-notifications\" --include=\"*.ts\" --include=\"*.tsx\" --include=\"*.js\" --include=\"*.json\" 2>/dev/null | grep -v node_modules | head -50)",
+      "Bash(grep -r \"import.*OneSignal\\\\|from.*onesignal\\\\|from.*one-signal\" --include=\"*.ts\" --include=\"*.tsx\" --include=\"*.js\" 2>/dev/null | grep -v node_modules)",
+      "Bash(CI=true pnpm install --filter driver --filter rider 2>&1 | tail -8)"
     ]
   }
 }

@@ -7,7 +7,8 @@
     "build": "tsc",
     "start": "node dist/app.js",
     "worker:notify": "ts-node src/workers/notifyDrivers.worker.ts",
-    "worker:payment": "ts-node src/workers/payment.worker.ts"
+    "worker:payment": "ts-node src/workers/payment.worker.ts",
+    "seed": "ts-node src/seeds/seed.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.700.0",
@@ -37,6 +38,7 @@
     "@types/node": "^20.0.0",
     "nodemon": "^2.0.22",
     "ts-node": "^10.9.0",
-    "typescript": "^5.8.2"
+    "typescript": "^5.8.2",
+    "socket.io-client": "^4.8.1"
   }
 }

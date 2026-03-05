@@ -1,28 +1,33 @@
-import axios from 'axios'
-
-// OneSignal push notification service
+// Expo Push Notification service
 export async function sendPushNotification(params: {
-  playerIds: string[]
+  pushTokens: string[]
   title: string
   body: string
   data?: Record<string, unknown>
 }): Promise<void> {
-  const { playerIds, title, body, data } = params
+  const { pushTokens, title, body, data } = params
 
-  await axios.post(
-    'https://onesignal.com/api/v1/notifications',
-    {
-      app_id: process.env.ONESIGNAL_APP_ID,
-      include_player_ids: playerIds,
-      headings: { en: title },
-      contents: { en: body },
-      data,
-    },
-    {
+  const valid = pushTokens.filter(t => t?.startsWith('ExponentPushToken'))
+  if (valid.length === 0) return
+
+  const messages = valid.map(to => ({
+    to,
+    title,
+    body,
+    data,
+    sound: 'default',
+  }))
+
+  try {
+    await fetch('https://exp.host/--/api/v2/push/send', {
+      method: 'POST',
       headers: {
-        Authorization: `Basic ${process.env.ONESIGNAL_API_KEY}`,
         'Content-Type': 'application/json',
+        Accept: 'application/json',
       },
-    }
-  )
+      body: JSON.stringify(messages),
+    })
+  } catch (err: any) {
+    console.error('[Push] Erro ao enviar notificação Expo:', err.message)
+  }
 }

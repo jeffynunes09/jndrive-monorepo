@@ -5,6 +5,7 @@ import { addDriverLocation, removeDriverLocation, getDriverLocation } from '../.
 import { getRoute } from '../../routes/ors.client'
 import { RideService } from '../../../modules/ride/ride.service'
 import { UserService } from '../../../modules/user/user.service'
+import { sendPushNotification } from '../../../modules/notification/notification.service'
 
 const rideService = new RideService()
 const userService = new UserService()
@@ -108,14 +109,24 @@ export function registerDriverHandlers(socket: Socket): void {
         licensePlate: driverUserQ.licensePlate ?? null,
       } : null
 
-      // Notifica passageiro da segunda corrida — motorista a caminho (após finalizar a atual)
+      // Notifica passageiro da segunda corrida — motorista designado, mas ainda finalizando outra corrida
       io.to(`user:${queuedRide.riderId}`).emit(SocketEvents.RIDE_STATUS_UPDATE, {
         rideId,
         status: 'driver_assigned',
         driverId,
         otp: queuedRide.otp,
         driverInfo: driverInfoQ,
+        queued: true,
       })
+
+      if (riderUserQ?.pushToken) {
+        await sendPushNotification({
+          pushTokens: [riderUserQ.pushToken],
+          title: 'Motorista a caminho!',
+          body: `${driverUserQ?.name ?? 'Seu motorista'} foi designado para sua corrida`,
+          data: { rideId, type: 'driver_assigned' },
+        })
+      }
 
       console.log(`[WS] Driver ${driverId} enfileirou segunda corrida ${rideId}`)
       return
@@ -160,6 +171,15 @@ export function registerDriverHandlers(socket: Socket): void {
       otp: updated.otp,
       driverInfo,
     })
+
+    if (riderUser?.pushToken) {
+      await sendPushNotification({
+        pushTokens: [riderUser.pushToken],
+        title: 'Motorista a caminho!',
+        body: `${driverUser?.name ?? 'Seu motorista'} foi designado para sua corrida`,
+        data: { rideId, type: 'driver_assigned' },
+      })
+    }
 
     // Calcula rota da localização atual do motorista até o embarque
     const driverLoc = await getDriverLocation(driverId)
@@ -221,6 +241,7 @@ export function registerDriverHandlers(socket: Socket): void {
   socket.on(SocketEvents.RIDE_PAYMENT_REQUEST, async ({ rideId, driverId }: { rideId: string; driverId: string }) => {
     const io = getIO()
     const riderId = socket.data.activeRideRiderId as string | undefined
+    const riderUser = riderId ? await userService.findById(riderId) : null
 
     // 1. payment_pending
     await rideService.update(rideId, { status: 'payment_pending' })
@@ -237,6 +258,15 @@ export function registerDriverHandlers(socket: Socket): void {
     socket.emit(SocketEvents.RIDE_STATUS_UPDATE, { rideId, status: 'paid', paymentConfirmed: true })
     console.log(`[WS] Corrida ${rideId} — pagamento confirmado`)
 
+    if (riderUser?.pushToken) {
+      await sendPushNotification({
+        pushTokens: [riderUser.pushToken],
+        title: 'Pagamento confirmado',
+        body: 'Sua corrida foi paga com sucesso',
+        data: { rideId, type: 'paid' },
+      })
+    }
+
     // 3. completed (após 1s)
     await new Promise(r => setTimeout(r, 1000))
     const finished = await rideService.finishRide(rideId)
@@ -245,6 +275,15 @@ export function registerDriverHandlers(socket: Socket): void {
     io.to(`user:${riderId}`).emit(SocketEvents.RIDE_STATUS_UPDATE, { rideId, status: 'completed' })
     socket.emit(SocketEvents.RIDE_STATUS_UPDATE, { rideId, status: 'completed' })
     console.log(`[WS] Corrida ${rideId} — finalizada, driver ${driverId} liberado`)
+
+    if (riderUser?.pushToken) {
+      await sendPushNotification({
+        pushTokens: [riderUser.pushToken],
+        title: 'Corrida finalizada',
+        body: 'Obrigado por usar o TruDrive!',
+        data: { rideId, type: 'completed' },
+      })
+    }
 
     // Verifica se há segunda corrida enfileirada
     const queuedRideId = socket.data.queuedRideId as string | undefined
@@ -264,15 +303,33 @@ export function registerDriverHandlers(socket: Socket): void {
         const driverLoc = await getDriverLocation(driverId)
         const routeToPickup = driverLoc ? await getRoute(driverLoc, queuedRide.origin) : null
 
-        // Emite ao motorista a nova corrida ativa imediatamente
-        socket.emit(SocketEvents.RIDE_ROUTE_UPDATE, {
+        const routePayload = {
           rideId: queuedRideId,
-          phase: 'to_pickup',
+          phase: 'to_pickup' as const,
           origin: driverLoc ?? queuedRide.origin,
           destination: queuedRide.origin,
-          destinationRide: queuedRide.destination,
           geometry: routeToPickup?.geometry ?? null,
+        }
+
+        // Emite ao motorista a nova corrida ativa imediatamente
+        socket.emit(SocketEvents.RIDE_ROUTE_UPDATE, {
+          ...routePayload,
+          destinationRide: queuedRide.destination,
         })
+
+        // Emite ao rider 2 a rota do motorista indo até o embarque dele
+        io.to(`user:${queuedRideRiderId}`).emit(SocketEvents.RIDE_ROUTE_UPDATE, routePayload)
+
+        // Push para rider 2: motorista concluiu corrida anterior e está a caminho
+        const queuedRiderUser = await userService.findById(queuedRideRiderId)
+        if (queuedRiderUser?.pushToken) {
+          await sendPushNotification({
+            pushTokens: [queuedRiderUser.pushToken],
+            title: 'Motorista a caminho!',
+            body: 'Seu motorista concluiu a corrida anterior e está indo até você',
+            data: { rideId: queuedRideId, type: 'driver_en_route' },
+          })
+        }
 
         console.log(`[WS] Driver ${driverId} — segunda corrida ${queuedRideId} iniciando imediatamente`)
       }
