@@ -2,7 +2,7 @@ import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import { User } from '../user/user.schema'
 
-const JWT_SECRET = process.env.JWT_SECRET
+const JWT_SECRET = process.env.JWT_SECRET!
 if (!JWT_SECRET) throw new Error('JWT_SECRET env var is required')
 const JWT_EXPIRES_IN = '30d'
 
