@@ -45,7 +45,7 @@ jobs:
           pnpm --filter shared-config build
 
       - name: Verificar tipos do backend (TypeScript)
-        run: pnpm --filter backend exec tsc --noEmit
+        run: pnpm --filter backend run typecheck
 
       - name: Rodar testes do backend
         run: pnpm --filter backend test

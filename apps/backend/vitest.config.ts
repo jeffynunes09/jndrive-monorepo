@@ -6,6 +6,9 @@ export default defineConfig({
     environment: 'node',
     globals: true,
     clearMocks: true,
+    typecheck: {
+      tsconfig: './tsconfig.test.json',
+    },
   },
   resolve: {
     alias: {

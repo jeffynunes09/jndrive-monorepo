@@ -11,5 +11,11 @@
   "engines": {
     "node": ">=20",
     "pnpm": ">=9"
+  },
+  "pnpm": {
+    "overrides": {
+      "@aws-sdk/client-s3": "3.972.0",
+      "@aws-sdk/s3-request-presigner": "3.972.0"
+    }
   }
 }
