@@ -15,7 +15,7 @@ env:
 
 jobs:
   # ─────────────────────────────────────────────────────────
-  # 1. TESTES E BUILD CHECK — barra subida de codigo com bug
+  # 1. TESTES E BUILD CHECK
   # ─────────────────────────────────────────────────────────
   test:
     name: Testes e Verificacao de Build
@@ -47,6 +47,9 @@ jobs:
       - name: Verificar tipos do backend (TypeScript)
         run: pnpm --filter backend exec tsc --noEmit
 
+      - name: Rodar testes do backend
+        run: pnpm --filter backend test
+
       - name: Rodar testes do admin
         run: pnpm --filter admin test --run
 
@@ -56,112 +59,40 @@ jobs:
           VITE_S3_BASE_URL: ${{ secrets.PROD_VITE_S3_BASE_URL }}
         run: pnpm --filter admin build
 
-      - name: Upload do build do admin
-        uses: actions/upload-artifact@v4
-        with:
-          name: admin-dist-prod
-          path: apps/admin/dist/
-          retention-days: 1
-
   # ─────────────────────────────────────────────────────────
-  # 2. DEPLOY BACKEND — servidor de producao via SSH + Docker
+  # 2. DEPLOY — aciona os deploy hooks do Render
   # ─────────────────────────────────────────────────────────
-  deploy-backend:
-    name: Deploy Backend (Producao)
+  deploy:
+    name: Deploy (Producao)
     runs-on: ubuntu-latest
     needs: test
     environment: producao
     steps:
-      - name: Checkout codigo
-        uses: actions/checkout@v4
+      - name: Deploy backend no Render
+        run: |
+          curl -sf -X POST "${{ secrets.RENDER_PROD_BACKEND_DEPLOY_HOOK }}"
+          echo "Deploy do backend acionado."
 
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.PROD_SSH_HOST }}
-          username: ${{ secrets.PROD_SSH_USER }}
-          key: ${{ secrets.PROD_SSH_KEY }}
-          port: ${{ secrets.PROD_SSH_PORT || 22 }}
-          script: |
-            set -e
-
-            echo "==> Atualizando codigo..."
-            cd ${{ secrets.PROD_APP_DIR }}
-            git fetch origin main
-            git checkout main
-            git pull origin main
-
-            echo "==> Rebuild e restart do container..."
-            docker compose -f infra/docker-compose.yml up -d --build --remove-orphans backend
-
-            echo "==> Aguardando backend subir..."
-            sleep 10
-
-            echo "==> Verificando saude do servico..."
-            curl -f http://localhost:3000/health || (echo "ERRO: backend nao respondeu" && exit 1)
-
-            echo "==> Limpando imagens antigas..."
-            docker image prune -f
-
-            echo "Deploy de producao do backend concluido com sucesso."
+      - name: Deploy admin no Render
+        run: |
+          curl -sf -X POST "${{ secrets.RENDER_PROD_ADMIN_DEPLOY_HOOK }}"
+          echo "Deploy do admin acionado."
 
   # ─────────────────────────────────────────────────────────
-  # 3. DEPLOY ADMIN — painel estático
-  #    Opcao A (padrao): deploy via SCP para servidor web
-  #    Opcao B: descomentar bloco Render se usar Render.com
-  # ─────────────────────────────────────────────────────────
-  deploy-admin:
-    name: Deploy Admin (Producao)
-    runs-on: ubuntu-latest
-    needs: test
-    environment: producao
-    steps:
-      - name: Baixar build do admin
-        uses: actions/download-artifact@v4
-        with:
-          name: admin-dist-prod
-          path: dist/
-
-      # ── Opcao A: copiar para servidor via SCP ──────────────
-      - name: Deploy do admin via SCP
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.PROD_SSH_HOST }}
-          username: ${{ secrets.PROD_SSH_USER }}
-          key: ${{ secrets.PROD_SSH_KEY }}
-          port: ${{ secrets.PROD_SSH_PORT || 22 }}
-          source: 'dist/'
-          target: ${{ secrets.PROD_ADMIN_WEB_DIR }}
-          strip_components: 1
-          overwrite: true
-
-      # ── Opcao B: Render.com deploy hook (descomentar se usar Render) ──
-      # - name: Trigger Render deploy
-      #   run: |
-      #     curl -s -X POST "${{ secrets.RENDER_PROD_DEPLOY_HOOK }}" | \
-      #       python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('id','ok'))"
-
-  # ─────────────────────────────────────────────────────────
-  # 4. NOTIFICACAO — informa resultado do deploy
+  # 3. NOTIFICACAO
   # ─────────────────────────────────────────────────────────
   notify:
     name: Notificar Resultado
     runs-on: ubuntu-latest
-    needs: [deploy-backend, deploy-admin]
+    needs: deploy
     if: always()
     steps:
-      - name: Notificar sucesso
-        if: needs.deploy-backend.result == 'success' && needs.deploy-admin.result == 'success'
-        run: |
-          echo "Deploy de PRODUCAO concluido com sucesso."
-          echo "Backend: ${{ needs.deploy-backend.result }}"
-          echo "Admin:   ${{ needs.deploy-admin.result }}"
-          # Adicione aqui notificacao Slack/Discord/Telegram se desejar
+      - name: Sucesso
+        if: needs.deploy.result == 'success'
+        run: echo "Deploy de PRODUCAO concluido com sucesso."
 
-      - name: Notificar falha
-        if: needs.deploy-backend.result == 'failure' || needs.deploy-admin.result == 'failure'
+      - name: Falha
+        if: needs.deploy.result == 'failure'
         run: |
           echo "FALHA no deploy de PRODUCAO!"
-          echo "Backend: ${{ needs.deploy-backend.result }}"
-          echo "Admin:   ${{ needs.deploy-admin.result }}"
           exit 1
