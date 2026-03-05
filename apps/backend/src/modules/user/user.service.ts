@@ -28,6 +28,7 @@ export interface UpdateUserDto {
   vehicleColor?: string
   driverLicenseImage?: string
   vehicleDocImage?: string
+  pushToken?: string
 }
 
 export class UserService {

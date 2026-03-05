@@ -1,11 +1,39 @@
+import { useEffect } from 'react'
 import { Tabs } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
+import Constants from 'expo-constants'
+import { updateMe } from '../../utils/api'
 
 const PRIMARY = '#22c55e'
 const TAB_BG = '#111'
 const INACTIVE = '#3d4451'
 
+async function setupNotifications() {
+  const projectId = Constants.expoConfig?.extra?.eas?.projectId as string | undefined
+  if (!projectId) return // Expo Go / sem EAS configurado — pula silenciosamente
+
+  const Notifications = await import('expo-notifications')
+
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: false,
+    }),
+  })
+
+  const { status } = await Notifications.requestPermissionsAsync()
+  if (status !== 'granted') return
+
+  const token = await Notifications.getExpoPushTokenAsync({ projectId })
+  await updateMe({ pushToken: token.data })
+}
+
 export default function TabsLayout() {
+  useEffect(() => {
+    setupNotifications().catch(() => {})
+  }, [])
+
   return (
     <Tabs
       screenOptions={{
