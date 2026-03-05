@@ -51,7 +51,7 @@ jobs:
         run: pnpm --filter backend test
 
       - name: Rodar testes do admin
-        run: pnpm --filter admin test --run
+        run: pnpm --filter admin test
 
       - name: Build do admin (verifica se compila sem erros)
         env:
